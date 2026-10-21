@@ -1,0 +1,28 @@
+[project]
+name = "incident-agent"
+version = "0.1.0"
+description = "An LLM agent that investigates production incidents using your logs and databases"
+readme = "README.md"
+requires-python = ">=3.11"
+keywords = ["incident", "sre", "observability", "llm", "agent", "langgraph", "elasticsearch"]
+dependencies = [
+    "elasticsearch==8.15.0",
+    "psycopg2==2.9.12",
+    "langchain-core>=1.6.12",
+    "langchain-openai>=1.7.2",
+    "langgraph>=1.2.16",
+    "psycopg2-binary>=2.9.13",
+    "pydantic>=2.14.1",
+    "python-dotenv>=1.2.4",
+    "pyyaml>=6.0.3",
+    "sqlalchemy==2.0.50",
+    "httpx>=0.28.1",
+    "langchain>=1.4.6",
+]
+
+[project.scripts]
+incident-agent = "incident_agent.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

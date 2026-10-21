@@ -1,0 +1,42 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# ---- Personal / deployment-specific: never pushed -------------------------
+# Rule: anything named *.local.* or .env* is yours. Shared defaults stay in
+# the committed file next to it (agent.yaml, *.example.yaml, .env.example).
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Per-developer overrides, e.g. configs/agent.local.yaml, prompts/system.local.md
+*.local.*
+!*.example.*
+
+# Your cluster's index names and fields (template: configs/es_indices.example.yaml)
+configs/es_indices.yaml
+
+# Tool caches and reports
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.log
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Claude Code per-user settings
+.claude/settings.local.json

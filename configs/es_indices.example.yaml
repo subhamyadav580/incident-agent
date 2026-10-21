@@ -1,0 +1,37 @@
+# Your Elasticsearch index groups, keyed by prefix.
+#
+# Copy this file to configs/es_indices.yaml and edit it for your cluster.
+#
+# Indices are grouped by stripping the date/rollover suffix, e.g.
+#   checkout-service-logs-2026.10.21      -> checkout-service-logs
+#   .ds-logs-apm.error-default-2026.10.21 -> logs-apm.error-default
+# Call list_es_indices (or run the agent once) to see the exact prefixes.
+#
+# Only prefixes with a non-empty description are searched by the prefetch
+# step, so describe the ones the agent should look at for every incident.
+#
+# Each entry is either a description string, or a mapping with:
+#   description:     what the group holds (shown to the model)
+#   fields:          fields returned from each hit
+#   search_fields:   fields the ids / message text are matched against
+#   timestamp_field: field used for the time range and sort
+# Keys you leave out use the `prefetch` defaults in agent.yaml.
+index_prefixes:
+  checkout-service-logs:
+    description: >-
+      Application logs of the checkout service — cart, payment and order creation.
+    fields: ["@timestamp", "message", "log.level", "trace.id"]
+
+  payment-gateway-logs:
+    description: >-
+      Requests and responses exchanged with the payment provider, including
+      declines and timeouts.
+    fields: ["timestamp", "request_body", "response_body", "status_code"]
+    search_fields: ["request_body", "response_body"]
+    timestamp_field: timestamp
+
+  # Short form: description only, default fields.
+  logs-apm.error-default: APM errors across all services, with exception type and stack trace.
+
+  # Listed but not described: available to the tools, skipped by prefetch.
+  nginx-access-logs: ""

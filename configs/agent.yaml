@@ -1,0 +1,63 @@
+agent:
+  name: incident-agent
+
+# Any provider supported by LangChain's init_chat_model: openai, anthropic,
+# google_genai, ollama, bedrock, ... Install its integration package
+# (e.g. `uv add langchain-anthropic`) and set its API key in .env.
+model:
+  provider: openai
+  name: gpt-4.1-mini
+
+prompts:
+  system: prompts/system.md
+
+# Data sources. Each plugin reads its connection settings from the environment
+# (see .env.example) and the options below. Disable the ones you don't have.
+plugins:
+  elasticsearch:
+    enabled: true
+    # Your index groups: description and fields per prefix. Copy
+    # configs/es_indices.example.yaml to configs/es_indices.yaml and edit it.
+    index_config: configs/es_indices.yaml
+    request_timeout: 30
+
+    # Before the first model call, search the input message across every index
+    # group that has a description, and give the hits to the model as evidence.
+    prefetch:
+      enabled: true
+      # Defaults for every index group; a prefix in es_indices.yaml can override them.
+      fields: ["@timestamp", "message"]   # returned to the model
+      search_fields: [message]            # where ids / message text are matched
+      timestamp_field: "@timestamp"
+      lookback: 24h                 # ES date math: 30m, 2h, 7d
+      size_per_index: 20
+      max_field_chars: 2000
+      # Regexes for ids to search for. Defaults match mixed letter+digit tokens
+      # (6+ chars) and 8+ digit numbers.
+      # identifier_patterns:
+      #   - '\bORD-\d+\b'
+
+  postgres:
+    enabled: true
+    max_rows: 200                   # cap on rows returned by fetch_all
+
+  # A custom plugin: any module exposing create_plugin(options) -> Plugin.
+  # my_source:
+  #   enabled: true
+  #   module: my_package.my_plugin
+
+# Optional allowlist. Omit to give the model every tool of the enabled plugins.
+# tools:
+#   enabled:
+#     - list_es_indices
+#     - get_index_mapping
+#     - search_on_index
+#     - list_databases
+#     - list_tables
+#     - fetch_one
+#     - fetch_all
+
+limits:
+  max_steps: 8
+  max_execution_seconds: 120
+  max_model_calls: 12
