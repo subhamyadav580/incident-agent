@@ -19,6 +19,18 @@ function write(key: string, value: string) {
   }
 }
 
+const CHANGED = "ia-preferences";
+const announce = () => window.dispatchEvent(new Event(CHANGED));
+
+/** Re-read a preference when another component changes it. */
+function useSynced<T extends string>(key: string, fallback: T, set: (value: T) => void) {
+  useEffect(() => {
+    const listener = () => set(read(key, fallback));
+    window.addEventListener(CHANGED, listener);
+    return () => window.removeEventListener(CHANGED, listener);
+  }, [key, fallback, set]);
+}
+
 const applyTheme = (theme: Theme) => {
   const dark = theme === "dark" || (theme === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
   document.documentElement.classList.toggle("dark", dark);
@@ -34,9 +46,11 @@ export function useTheme() {
     media.addEventListener("change", listener);
     return () => media.removeEventListener("change", listener);
   }, [theme]);
+  useSynced("ia-theme", "system", setThemeState);
   const setTheme = useCallback((value: Theme) => {
     write("ia-theme", value);
     setThemeState(value);
+    announce();
   }, []);
   return [theme, setTheme] as const;
 }
@@ -46,9 +60,11 @@ export function useDensity() {
   useEffect(() => {
     document.documentElement.dataset.density = density;
   }, [density]);
+  useSynced("ia-density", "comfortable", setDensityState);
   const setDensity = useCallback((value: Density) => {
     write("ia-density", value);
     setDensityState(value);
+    announce();
   }, []);
   return [density, setDensity] as const;
 }

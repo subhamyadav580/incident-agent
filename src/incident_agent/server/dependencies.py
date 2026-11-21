@@ -1,4 +1,5 @@
 from collections.abc import Iterator
+from contextlib import contextmanager
 
 from fastapi import Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -42,3 +43,21 @@ def get_investigation_service(
     settings: SettingsService = Depends(get_settings_service),
 ) -> InvestigationService:
     return InvestigationService(connectors, settings, InvestigationRepo(db))
+
+
+def build_investigation_service(session: Session, box: SecretBox) -> InvestigationService:
+    return InvestigationService(
+        ConnectorService(ConnectorRepo(session), box),
+        SettingsService(SettingsRepo(session), box),
+        InvestigationRepo(session),
+    )
+
+
+@contextmanager
+def investigation_service_session() -> Iterator[InvestigationService]:
+    """An InvestigationService with its own session, for work outside the request (streaming)."""
+    session = get_sessionmaker()()
+    try:
+        yield build_investigation_service(session, get_secret_box())
+    finally:
+        session.close()

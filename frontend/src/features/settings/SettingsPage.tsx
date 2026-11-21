@@ -5,7 +5,9 @@ import type { AgentSettings } from "@/api/types";
 import { PageBody, PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { Checkbox, Field, Input, TextArea } from "@/components/ui/Field";
-import { Alert, Spinner } from "@/components/ui/Feedback";
+import { Alert } from "@/components/ui/Feedback";
+import { Skeleton } from "@/components/ui/Skeleton";
+import { useToast } from "@/components/ui/Toast";
 import { Panel, PanelBody, PanelHeader } from "@/components/ui/Panel";
 
 const PROVIDERS = ["openai", "anthropic", "google_genai", "ollama", "bedrock", "azure_openai"];
@@ -13,6 +15,7 @@ const PROVIDERS = ["openai", "anthropic", "google_genai", "ollama", "bedrock", "
 export function SettingsPage() {
   const { data, isLoading, error } = useSettings();
   const save = useSaveSettings();
+  const toast = useToast();
   const [form, setForm] = useState<AgentSettings | null>(null);
   const [apiKey, setApiKey] = useState("");
   const [showPrompt, setShowPrompt] = useState(false);
@@ -26,7 +29,10 @@ export function SettingsPage() {
   const submit = () =>
     form && save.mutate(
       { ...form, router_model_name: form.router_model_name?.trim() || null, model_api_key: apiKey },
-      { onSuccess: () => setApiKey("") },
+      {
+        onSuccess: () => { setApiKey(""); toast("ok", "Settings saved", "New investigations use them."); },
+        onError: (error) => toast("err", "Couldn't save settings", error.message),
+      },
     );
 
   return (
@@ -36,7 +42,7 @@ export function SettingsPage() {
       <PageBody>
         {error && <Alert tone="err">{(error as Error).message}</Alert>}
         {isLoading || !form ? (
-          <div className="grid place-items-center p-10"><Spinner /></div>
+          <div className="max-w-3xl space-y-3"><Skeleton className="h-64 rounded-xl" /><Skeleton className="h-48 rounded-xl" /></div>
         ) : (
           <div className="max-w-3xl space-y-4">
             <Panel>
@@ -85,8 +91,6 @@ export function SettingsPage() {
               </PanelBody>
             </Panel>
 
-            {save.isSuccess && <Alert tone="ok">Saved. New investigations use these settings.</Alert>}
-            {save.error && <Alert tone="err">{(save.error as Error).message}</Alert>}
           </div>
         )}
       </PageBody>

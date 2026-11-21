@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import StreamingResponse
 
 from ..api.handlers import investigations as handlers
-from ..dependencies import get_investigation_service
+from ..dependencies import get_investigation_service, investigation_service_session
 from ..schemas.investigation import InvestigationOut, InvestigationRequest, InvestigationSummary, OverviewOut
 from ..services.investigation.service import InvestigationService
 
@@ -13,6 +14,11 @@ router = APIRouter(prefix="/api", tags=["investigations"])
 @router.post("/investigations", response_model=InvestigationOut)
 def run_investigation(request: InvestigationRequest, service: InvestigationService = Depends(get_investigation_service)):
     return handlers.run_investigation(service, request)
+
+
+@router.post("/investigations/stream", response_class=StreamingResponse)
+def stream_investigation(request: InvestigationRequest):
+    return handlers.stream_investigation(request, investigation_service_session)
 
 
 @router.get("/investigations", response_model=list[InvestigationSummary])

@@ -292,10 +292,13 @@ class AgentHarness:
     def run(self, task: str, run_id: str) -> str:
         return self.run_with_details(task, run_id)["report"]
 
-    def run_with_details(self, task: str, run_id: str) -> dict:
-        """Run and return {report, intent, steps, run_id, trace}."""
+    def run_with_details(self, task: str, run_id: str, listener: Optional[Callable[[str, int, dict], None]] = None) -> dict:
+        """
+        Run and return {report, intent, steps, run_id, trace}. `listener` is
+        called as each step starts and ends ("start" | "end", index, span).
+        """
         trace_event(run_id, "run_started")
-        trace = self._traces[run_id] = RunTrace(run_id)
+        trace = self._traces[run_id] = RunTrace(run_id, listener)
 
         try:
             result = self._invoke(task, run_id)

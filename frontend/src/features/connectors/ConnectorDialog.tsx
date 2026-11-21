@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { Checkbox, Field, Input, Select, TextArea } from "@/components/ui/Field";
 import { Alert } from "@/components/ui/Feedback";
+import { useToast } from "@/components/ui/Toast";
 import { Tabs } from "@/components/ui/Tabs";
 import { formatDuration } from "@/lib/format";
 import { IndexGroupsEditor } from "./catalog/IndexGroupsEditor";
@@ -58,6 +59,7 @@ export function ConnectorDialog({ type, connector, onClose }: { type: ConnectorT
   const save = useSaveConnector();
   const test = useTestConnector();
   const remove = useDeleteConnector();
+  const toast = useToast();
   const stored = new Set(connector?.secrets_set ?? []);
 
   // Fields with show_if are hidden (and not sent) unless the other field matches.
@@ -115,13 +117,15 @@ export function ConnectorDialog({ type, connector, onClose }: { type: ConnectorT
         <>
           {connector && (
             <Button variant="danger" loading={remove.isPending} onClick={() => {
-              if (confirm(`Delete connector ${connector.name}? Its stored credentials are removed.`)) remove.mutate(connector.id, { onSuccess: onClose });
+              if (confirm(`Delete connector ${connector.name}? Its stored credentials are removed.`)) remove.mutate(connector.id, {
+                onSuccess: () => { toast("ok", `Deleted ${connector.name}`); onClose(); },
+              });
             }}>Delete</Button>
           )}
           <span className="flex-1" />
           <Button loading={test.isPending} onClick={() => test.mutate({ type: type.type, id: connector?.id, ...connection() })}>Test connection</Button>
           <Button variant="primary" loading={save.isPending} onClick={() =>
-            save.mutate({ id: connector?.id, body: { name: name.trim(), enabled, ...(connector ? {} : { type: type.type }), ...payload() } }, { onSuccess: onClose })
+            save.mutate({ id: connector?.id, body: { name: name.trim(), enabled, ...(connector ? {} : { type: type.type }), ...payload() } }, { onSuccess: (saved) => { toast("ok", connector ? `Saved ${saved.name}` : `Added ${saved.name}`, saved.enabled ? "Used by new investigations." : "Disabled for now."); onClose(); } })
           }>Save</Button>
         </>
       }

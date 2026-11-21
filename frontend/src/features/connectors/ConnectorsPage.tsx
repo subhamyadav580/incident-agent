@@ -1,18 +1,22 @@
 import { Plug, Plus, RefreshCw } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router";
 import { useConnectors, useConnectorTypes, useSaveConnector } from "@/api/hooks";
 import type { Connector, ConnectorType } from "@/api/types";
 import { PageBody, PageHeader } from "@/components/layout/PageHeader";
 import { HealthIndicator, TypeLogo, useHealthState } from "@/components/status";
 import { Button } from "@/components/ui/Button";
 import { Switch } from "@/components/ui/Field";
-import { Alert, EmptyState, Spinner } from "@/components/ui/Feedback";
+import { Alert, EmptyState } from "@/components/ui/Feedback";
+import { SkeletonRows } from "@/components/ui/Skeleton";
+import { useToast } from "@/components/ui/Toast";
 import { Panel, PanelHeader } from "@/components/ui/Panel";
 import { ConnectorDialog } from "./ConnectorDialog";
 
 function Row({ connector, type, onEdit }: { connector: Connector; type?: ConnectorType; onEdit: () => void }) {
   const save = useSaveConnector();
   const health = useHealthState(connector);
+  const toast = useToast();
   return (
     <tr className="hover:bg-hover">
       <td className="px-pad py-row">
@@ -33,7 +37,10 @@ function Row({ connector, type, onEdit }: { connector: Connector; type?: Connect
       <td className="px-pad py-row"><HealthIndicator connector={connector} /></td>
       <td className="px-pad py-row">
         <Switch label={`Enable ${connector.name}`} checked={connector.enabled} disabled={save.isPending}
-          onChange={(enabled) => save.mutate({ id: connector.id, body: { enabled } }, { onError: (error) => alert(error.message) })} />
+          onChange={(enabled) => save.mutate({ id: connector.id, body: { enabled } }, {
+            onSuccess: () => toast("ok", `${connector.name} ${enabled ? "enabled" : "disabled"}`),
+            onError: (error) => toast("err", `Couldn't ${enabled ? "enable" : "disable"} ${connector.name}`, error.message),
+          })} />
       </td>
       <td className="px-pad py-row text-right whitespace-nowrap">
         <Button size="sm" variant="ghost" aria-label="Re-check" disabled={!connector.enabled} onClick={() => health.refetch()}>
@@ -51,6 +58,14 @@ export function ConnectorsPage() {
   const [editing, setEditing] = useState<{ type: ConnectorType; connector?: Connector } | null>(null);
   const [newType, setNewType] = useState("");
   const typeByName = (name: string) => types.find((type) => type.type === name);
+  const [params, setParams] = useSearchParams();
+  useEffect(() => {
+    const type = params.get("add") && types.find((t) => t.type === params.get("add"));
+    if (type) {
+      setEditing({ type });
+      setParams({}, { replace: true });
+    }
+  }, [params, setParams, types]);
 
   const addMenu = (
     <div className="flex items-center gap-2">
@@ -89,7 +104,7 @@ export function ConnectorsPage() {
             <span className="text-[12px] text-muted">Credentials are encrypted in the app database and never shown again.</span>
           </PanelHeader>
           {isLoading ? (
-            <div className="grid place-items-center p-8"><Spinner /></div>
+            <SkeletonRows rows={3} />
           ) : connectors.length ? (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[760px] text-left">

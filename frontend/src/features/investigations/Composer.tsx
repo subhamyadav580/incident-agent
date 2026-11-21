@@ -1,11 +1,14 @@
 import { ArrowRight, Sparkles } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router";
-import { useRunInvestigation } from "@/api/hooks";
+import { useNavigate, useSearchParams } from "react-router";
+import { useQueryClient } from "@tanstack/react-query";
+import { keys } from "@/api/hooks";
+import { streamInvestigation } from "@/api/stream";
 import { Button } from "@/components/ui/Button";
 import { TextArea } from "@/components/ui/Field";
-import { Alert, Kbd, Spinner } from "@/components/ui/Feedback";
+import { Alert, Kbd } from "@/components/ui/Feedback";
 import { Panel, PanelBody } from "@/components/ui/Panel";
+import { LiveRun, type LiveStep } from "./LiveRun";
 
 // Generic examples: any error text, a failing id, or a question about data.
 const EXAMPLES = [
@@ -14,30 +17,46 @@ const EXAMPLES = [
   "What is the status of order ORD-48213?",
 ];
 
-function Elapsed({ since }: { since: number }) {
-  const [now, setNow] = useState(Date.now());
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 100);
-    return () => clearInterval(timer);
-  }, []);
-  return <span className="font-mono text-[12.5px] text-muted tabular-nums">{((now - since) / 1000).toFixed(1)} s</span>;
-}
-
 export function Composer() {
-  const [message, setMessage] = useState("");
+  const [params] = useSearchParams();
+  const [message, setMessage] = useState(() => params.get("q") ?? "");
   const [startedAt, setStartedAt] = useState(0);
-  const run = useRunInvestigation();
+  const [running, setRunning] = useState<string | null>(null);
+  const [steps, setSteps] = useState<LiveStep[]>([]);
+  const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const input = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => input.current?.focus(), []);
 
-  const submit = () => {
+  const submit = async () => {
     const text = message.trim();
-    if (!text || run.isPending) return;
+    if (!text || running) return;
     setStartedAt(Date.now());
-    run.mutate(text, { onSuccess: (investigation) => navigate(`/investigations/${investigation.id}`) });
+    setRunning(text);
+    setSteps([]);
+    setError(null);
+    try {
+      const investigation = await streamInvestigation(text, (event) => {
+        if (event.type !== "step") return;
+        setSteps((current) => {
+          const next = [...current];
+          next[event.index] = { span: event.span, done: event.phase === "end" };
+          return next;
+        });
+      });
+      queryClient.setQueryData(keys.investigation(investigation.id), investigation);
+      navigate(`/investigations/${investigation.id}`);
+    } catch (failure) {
+      setError((failure as Error).message);
+    } finally {
+      setRunning(null);
+      queryClient.invalidateQueries({ queryKey: keys.investigations });
+      queryClient.invalidateQueries({ queryKey: keys.overview });
+    }
   };
+  const isRunning = Boolean(running);
 
   return (
     <div className="space-y-4">
@@ -50,7 +69,7 @@ export function Composer() {
             ref={input}
             rows={5}
             value={message}
-            disabled={run.isPending}
+            disabled={isRunning}
             onChange={(e) => setMessage(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit();
@@ -68,7 +87,7 @@ export function Composer() {
             ))}
             <span className="ml-auto flex items-center gap-2">
               <span className="hidden text-[12px] text-muted sm:inline"><Kbd>⌘</Kbd> <Kbd>Enter</Kbd></span>
-              <Button variant="primary" onClick={submit} loading={run.isPending} disabled={!message.trim()}>
+              <Button variant="primary" onClick={submit} loading={isRunning} disabled={!message.trim()}>
                 Investigate <ArrowRight />
               </Button>
             </span>
@@ -76,19 +95,10 @@ export function Composer() {
         </PanelBody>
       </Panel>
 
-      {run.isPending && (
-        <Panel className="flex items-center gap-3 p-pad">
-          <Spinner />
-          <div>
-            <div className="font-medium text-fg">Investigating</div>
-            <div className="text-[12.5px] text-muted">Classifying the message, searching enabled data sources, then analyzing the evidence.</div>
-          </div>
-          <span className="ml-auto"><Elapsed since={startedAt} /></span>
-        </Panel>
-      )}
-      {run.error && <Alert tone="err">{(run.error as Error).message}</Alert>}
+      {running && <LiveRun steps={steps.filter(Boolean)} startedAt={startedAt} message={running} />}
+      {error && <Alert tone="err">{error}</Alert>}
 
-      {!run.isPending && (
+      {!isRunning && !steps.length && (
         <div className="grid gap-4 md:grid-cols-3">
           {[
             ["Paste an error", "Exception names and fixed phrases are searched across every service; ids and numbers are ignored so all occurrences match."],

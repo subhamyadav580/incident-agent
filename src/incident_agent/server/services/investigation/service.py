@@ -4,6 +4,7 @@ import re
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
+from typing import Optional
 
 from incident_agent.app import build_agent
 
@@ -37,15 +38,16 @@ class InvestigationService:
         self.settings = settings
         self.repo = repo
 
-    def investigate(self, message: str) -> InvestigationOut:
-        run_id = str(uuid.uuid4())
+    def investigate(self, message: str, listener=None, run_id: Optional[str] = None) -> InvestigationOut:
+        """Run an investigation; `listener(phase, index, span)` receives each step as it happens."""
+        run_id = run_id or str(uuid.uuid4())
         plugins_config = self.connectors.plugins_config()
         record = Investigation(id=run_id, message=message, connectors=sorted(plugins_config))
 
         started = time.monotonic()
         try:
             with build_agent(self.settings.agent_config(), plugins_config=plugins_config) as agent:
-                result = agent.investigate_with_details(message, run_id=run_id)
+                result = agent.investigate_with_details(message, run_id=run_id, listener=listener)
         except Exception as error:
             record.status, record.error = "failed", str(error)
             record.duration_ms = int((time.monotonic() - started) * 1000)

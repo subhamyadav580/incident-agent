@@ -8,6 +8,7 @@ import { HealthIndicator, IntentBadge, RunStatusBadge, TypeLogo, typeLabel } fro
 import { ButtonLink } from "@/components/ui/Button";
 import { HourlyBars } from "@/components/ui/Charts";
 import { Alert, EmptyState, Spinner } from "@/components/ui/Feedback";
+import { SkeletonRows } from "@/components/ui/Skeleton";
 import { Panel, PanelBody, PanelHeader } from "@/components/ui/Panel";
 import { cn } from "@/components/ui/cn";
 import { formatDateTime, formatDuration, formatNumber, timeAgo } from "@/lib/format";
@@ -126,7 +127,9 @@ export function OverviewPage() {
           <PanelHeader title="Recent investigations" icon={<Search />}>
             <ButtonLink to="/investigations" variant="ghost" size="sm" className="ml-auto">View all</ButtonLink>
           </PanelHeader>
-          {data?.recent.length ? (
+          {!data ? (
+            <SkeletonRows rows={4} />
+          ) : data.recent.length ? (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[720px] text-left">
                 <thead>

@@ -41,7 +41,7 @@ class IncidentAgent:
     def investigate(self, message: str, run_id: Optional[str] = None) -> str:
         return self.harness.run(task=message, run_id=run_id or str(uuid.uuid4()))
 
-    def investigate_with_details(self, message: str, run_id: Optional[str] = None) -> dict:
+    def investigate_with_details(self, message: str, run_id: Optional[str] = None, listener=None) -> dict:
         """
         Like investigate(), also returning the intent, number of model steps and
         each plugin's structured prefetch evidence ({plugin name: evidence}).
@@ -49,7 +49,7 @@ class IncidentAgent:
         for plugin in self.plugins:
             if plugin.prefetch is not None and hasattr(plugin.prefetch, "last_evidence"):
                 plugin.prefetch.last_evidence = None
-        result = self.harness.run_with_details(task=message, run_id=run_id or str(uuid.uuid4()))
+        result = self.harness.run_with_details(task=message, run_id=run_id or str(uuid.uuid4()), listener=listener)
         result["evidence"] = {
             plugin.name: plugin.prefetch.last_evidence
             for plugin in self.plugins

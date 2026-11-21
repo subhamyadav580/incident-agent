@@ -3,7 +3,8 @@ import { useMemo, useState } from "react";
 import { NavLink } from "react-router";
 import { useInvestigations } from "@/api/hooks";
 import { Input } from "@/components/ui/Field";
-import { EmptyState, Spinner } from "@/components/ui/Feedback";
+import { EmptyState } from "@/components/ui/Feedback";
+import { SkeletonRows } from "@/components/ui/Skeleton";
 import { Panel } from "@/components/ui/Panel";
 import { cn } from "@/components/ui/cn";
 import { formatDuration, timeAgo } from "@/lib/format";
@@ -25,7 +26,7 @@ export function HistoryList() {
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
         {isLoading ? (
-          <div className="grid place-items-center p-6"><Spinner /></div>
+          <SkeletonRows rows={5} />
         ) : items.length ? (
           items.map((item) => {
             const meta = intentMeta(item.intent);

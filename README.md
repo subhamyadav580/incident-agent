@@ -20,11 +20,28 @@ Investigation report:
 
 ## How it works
 
+```mermaid
+flowchart LR
+    M["💬 Your message<br/><small>error, id or question</small>"] --> C{"✨ Classify"}
+    C -- conversation --> R1["Reply directly<br/><small>no data access</small>"]
+    C -- "data question" --> G
+    C -- investigation --> G
+
+    subgraph G["🗄️ Gather evidence (plain code, no model calls)"]
+        direction TB
+        L["Logs<br/><small>error occurrences per service,<br/>request traces</small>"]
+        D["Databases<br/><small>rows for ids in the message</small>"]
+        K["Code<br/><small>file and line that logs or throws</small>"]
+    end
+
+    G --> A["🤖 Agent loop<br/><small>reads evidence, calls tools:<br/>log search · SQL · read code</small>"]
+    A -- "needs more" --> A
+    A --> P["📄 Report<br/><small>summary · root cause (fact / hypothesis)<br/>UTC timeline · evidence gaps</small>"]
 ```
-message ──► classify intent ──┬─ conversation ──► reply (no data access)
-                              ├─ data_question ─► lookups ──► agent (LLM) ⇄ tools ──► answer
-                              └─ investigation ─► logs + lookups ──► agent (LLM) ⇄ tools ──► report
-```
+
+Every step is recorded (timing, tokens, tool calls) and shown in the
+investigation's **Workflow** tab; the same flow is drawn interactively on the
+app's Home page.
 
 0. **Intent.** One small model call decides whether the message is a chat
    message, a question about data ("status of order X?") or something to
@@ -80,6 +97,12 @@ Then, in the browser:
 | **Investigate** | Searchable history; per investigation the summary, root cause, affected services (match counts, hourly trend, first/last seen, distinct log patterns), code references, request traces, database records, a UTC-ordered timeline, evidence gaps, and a **Workflow** view of how the run went: each step (classify, data gathering per source, model steps, tool calls) as a timed bar with its tokens, arguments, result preview and errors |
 | **Connectors** | Data sources with health, latency and an enable switch; add or edit them in a side panel |
 | **Settings** | Model, routing, step limit, API key, team instructions |
+
+Press **⌘K / Ctrl+K** anywhere for the command palette: jump to a page, start
+an investigation (paste an error straight into it), add a connector, switch
+theme or density, or reopen a past investigation. While an investigation runs,
+its steps stream in live (classifying, searching logs, looking up records,
+reading code, writing the report), each ticked off with what it found.
 
 The CLI uses the same database, so it sees the same connectors and settings:
 
@@ -228,7 +251,7 @@ arguments and when to use it. Tool names must be unique across plugins.
 `GET /api/connector-types`, `GET|POST /api/connectors`,
 `PATCH|DELETE /api/connectors/{id}`, `POST /api/connectors/test`,
 `GET /api/connectors/{id}/health`, `GET|PUT /api/settings`,
-`POST|GET /api/investigations`, `GET|DELETE /api/investigations/{id}`, `GET /api/overview`. OpenAPI docs at `/docs`.
+`POST|GET /api/investigations`, `POST /api/investigations/stream` (NDJSON step events), `GET|DELETE /api/investigations/{id}`, `GET /api/overview`. OpenAPI docs at `/docs`.
 
 The server has no login and binds to 127.0.0.1 by default. Put it behind your
 own auth before exposing it to a network.

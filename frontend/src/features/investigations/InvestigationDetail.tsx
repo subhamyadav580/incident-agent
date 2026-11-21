@@ -5,7 +5,9 @@ import { useDeleteInvestigation, useInvestigation } from "@/api/hooks";
 import type { Investigation } from "@/api/types";
 import { IntentBadge, RunStatusBadge } from "@/components/status";
 import { Button } from "@/components/ui/Button";
-import { Alert, Spinner } from "@/components/ui/Feedback";
+import { Alert } from "@/components/ui/Feedback";
+import { Skeleton } from "@/components/ui/Skeleton";
+import { useToast } from "@/components/ui/Toast";
 import { Markdown } from "@/components/ui/Markdown";
 import { Panel, PanelBody, PanelHeader } from "@/components/ui/Panel";
 import { Tabs } from "@/components/ui/Tabs";
@@ -22,6 +24,7 @@ function Header({ investigation }: { investigation: Investigation }) {
   const remove = useDeleteInvestigation();
   const navigate = useNavigate();
   const [copied, setCopied] = useState(false);
+  const toast = useToast();
   return (
     <Panel>
       <PanelBody className="space-y-3">
@@ -36,12 +39,13 @@ function Header({ investigation }: { investigation: Investigation }) {
             <Button variant="ghost" size="sm" onClick={async () => {
               await navigator.clipboard?.writeText(investigation.report);
               setCopied(true);
+              toast("ok", "Report copied to the clipboard");
               setTimeout(() => setCopied(false), 1500);
             }}>
               {copied ? <Check /> : <Copy />} {copied ? "Copied" : "Copy report"}
             </Button>
             <Button variant="ghost" size="sm" aria-label="Delete investigation" loading={remove.isPending} onClick={() => {
-              if (confirm("Delete this investigation from history?")) remove.mutate(investigation.id, { onSuccess: () => navigate("/investigations") });
+              if (confirm("Delete this investigation from history?")) remove.mutate(investigation.id, { onSuccess: () => { toast("ok", "Investigation deleted"); navigate("/investigations"); } });
             }}>
               <Trash2 />
             </Button>
@@ -69,7 +73,16 @@ export function InvestigationDetail({ id }: { id: string }) {
   const [tab, setTab] = useState<Tab>("overview");
   const sections = useMemo(() => splitReport(investigation?.report ?? ""), [investigation?.report]);
 
-  if (isLoading) return <Panel className="flex items-center gap-3 p-pad"><Spinner /> Loading investigation…</Panel>;
+  if (isLoading) {
+    return (
+      <div className="space-y-4" role="status" aria-label="Loading investigation">
+        <Skeleton className="h-28 rounded-xl" />
+        <Skeleton className="h-9 w-80" />
+        <Skeleton className="h-24 rounded-xl" />
+        <Skeleton className="h-40 rounded-xl" />
+      </div>
+    );
+  }
   if (error || !investigation) return <Alert tone="err">{(error as Error | null)?.message ?? "Not found"}</Alert>;
 
   const structured = isStructuredReport(sections);

@@ -1,7 +1,7 @@
 import logging
 import time
 from contextlib import contextmanager
-from typing import Iterator
+from typing import Callable, Iterator, Optional
 
 logger = logging.getLogger("incident_agent")
 
@@ -46,10 +46,19 @@ class RunTrace:
     {kind, name, start_ms, duration_ms, status: ok|error, detail: {...}}.
     """
 
-    def __init__(self, run_id: str):
+    def __init__(self, run_id: str, listener: Optional[Callable[[str, int, dict], None]] = None):
         self.run_id = run_id
         self.started = time.monotonic()
         self.spans: list[dict] = []
+        # Called with ("start" | "end", span index, span) as steps happen, e.g. to stream them.
+        self.listener = listener
+
+    def _notify(self, phase: str, index: int, record: dict) -> None:
+        if self.listener:
+            try:
+                self.listener(phase, index, record)
+            except Exception:  # a broken listener must not break the run
+                logger.exception("Trace listener failed")
 
     @contextmanager
     def span(self, kind: str, name: str, **detail) -> Iterator[dict]:
@@ -62,6 +71,8 @@ class RunTrace:
             "detail": detail,
         }
         self.spans.append(record)
+        index = len(self.spans) - 1
+        self._notify("start", index, record)
         began = time.monotonic()
         try:
             yield record
@@ -72,3 +83,4 @@ class RunTrace:
         finally:
             record["duration_ms"] = int((time.monotonic() - began) * 1000)
             trace_event(self.run_id, f"{kind}_finished", name=name, duration_ms=record["duration_ms"], status=record["status"])
+            self._notify("end", index, record)

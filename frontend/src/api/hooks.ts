@@ -103,19 +103,6 @@ export const useInvestigation = (id: string | undefined) =>
     enabled: Boolean(id),
   });
 
-export function useRunInvestigation() {
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: (message: string) => api<Investigation>("POST", "/api/investigations", { message }),
-    onSuccess: (investigation) => {
-      client.setQueryData(keys.investigation(investigation.id), investigation);
-      client.invalidateQueries({ queryKey: keys.investigations });
-      client.invalidateQueries({ queryKey: keys.overview });
-    },
-    onError: () => client.invalidateQueries({ queryKey: keys.investigations }),
-  });
-}
-
 export function useDeleteInvestigation() {
   const client = useQueryClient();
   return useMutation({
