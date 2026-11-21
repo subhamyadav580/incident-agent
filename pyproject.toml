@@ -18,10 +18,14 @@ dependencies = [
     "sqlalchemy==2.0.50",
     "httpx>=0.28.1",
     "langchain>=1.4.6",
+    "fastapi>=0.165.0",
+    "uvicorn[standard]>=0.54.0",
+    "cryptography>=50.0.2",
 ]
 
 [project.scripts]
 incident-agent = "incident_agent.cli:main"
+incident-agent-server = "incident_agent.server.main:run"
 
 [build-system]
 requires = ["hatchling"]

@@ -7,6 +7,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 from .client import DatabaseRegistry
+from .schema import DatabaseSchema
 
 logger = logging.getLogger(__name__)
 
@@ -78,8 +79,25 @@ def validate_query(query: str) -> None:
         )
 
 
-def build_tools(registry: DatabaseRegistry, max_rows: int = 200) -> list[BaseTool]:
+def open_session(registry: DatabaseRegistry, database: Optional[str], statement_timeout_ms: int):
+    """A session whose statements are cancelled after statement_timeout_ms."""
+    session = registry.get(database).get_session()
+    # SET cannot take bind parameters; the value is an int from config.
+    session.execute(text(f"SET LOCAL statement_timeout = {int(statement_timeout_ms)}"))
+    return session
+
+
+def build_tools(
+    registry: DatabaseRegistry,
+    schemas: Optional[Dict[str, DatabaseSchema]] = None,
+    max_rows: int = 200,
+    statement_timeout_ms: int = 10_000,
+) -> list[BaseTool]:
     """Create the SQL tools bound to one database registry."""
+    schemas = schemas or {}
+
+    def schema_for(database: Optional[str]) -> DatabaseSchema:
+        return schemas.get(registry.get(database).name, DatabaseSchema())
 
     @tool
     def list_databases() -> List[Dict[str, Any]]:
@@ -92,23 +110,33 @@ def build_tools(registry: DatabaseRegistry, max_rows: int = 200) -> list[BaseToo
         return [
             {
                 "name": name,
-                "description": database.description,
+                "description": schemas.get(name, DatabaseSchema()).description or database.description,
                 "is_default": name == registry.default,
             }
             for name, database in sorted(registry.databases.items())
         ]
 
     @tool
-    def list_tables(database: Optional[str] = None, table_schema: str = "public") -> List[str]:
+    def list_tables(
+        database: Optional[str] = None,
+        name_filter: Optional[str] = None,
+        table_schema: str = "public",
+    ) -> Dict[str, Any]:
         """
-        List all tables in a schema.
+        List tables, described (important) ones first.
 
         Params:
             database: which configured database to query (see list_databases).
                       Defaults to the configured default database.
+            name_filter: optional substring to filter table names, e.g. "order".
             table_schema: the schema to list, "public" by default.
+
+        Returns {"described": [{table, description}], "other_tables": [...],
+        "other_tables_total": n}. Prefer described tables; call describe_table
+        before querying a table.
         """
-        session = registry.get(database).get_session()
+        described = schema_for(database).tables
+        session = open_session(registry, database, statement_timeout_ms)
 
         try:
             logger.info("Fetching list of tables on %r", database or registry.default)
@@ -118,15 +146,90 @@ def build_tools(registry: DatabaseRegistry, max_rows: int = 200) -> list[BaseToo
                     SELECT table_name
                     FROM information_schema.tables
                     WHERE table_schema = :schema
+                      AND (CAST(:name_filter AS text) IS NULL OR table_name ILIKE '%' || :name_filter || '%')
                     ORDER BY table_name
                 """),
-                {"schema": table_schema},
+                {"schema": table_schema, "name_filter": name_filter},
             )
+            names = [row[0] for row in result.fetchall()]
 
-            return [row[0] for row in result.fetchall()]
+            others = [name for name in names if name not in described]
+            return {
+                "described": [
+                    {"table": name, "description": described[name].description}
+                    for name in names if name in described
+                ],
+                "other_tables": others[:max_rows],
+                "other_tables_total": len(others),
+            }
 
         except SQLAlchemyError:
             logger.exception("Database error while listing tables")
+            raise
+
+        finally:
+            session.close()
+
+    @tool
+    def describe_table(
+        table: str,
+        database: Optional[str] = None,
+        table_schema: str = "public",
+    ) -> Dict[str, Any]:
+        """
+        Describe a table: its columns (name, type, meaning when documented) and
+        which columns are indexed. Tables can be very large; filter on indexed
+        columns and always use LIMIT.
+
+        Params:
+            table: the table name.
+            database: which configured database to query (see list_databases).
+            table_schema: the schema, "public" by default.
+        """
+        config = schema_for(database).tables.get(table)
+        session = open_session(registry, database, statement_timeout_ms)
+
+        try:
+            columns = session.execute(
+                text("""
+                    SELECT column_name, data_type, is_nullable
+                    FROM information_schema.columns
+                    WHERE table_schema = :schema AND table_name = :table
+                    ORDER BY ordinal_position
+                """),
+                {"schema": table_schema, "table": table},
+            ).fetchall()
+            if not columns:
+                raise ValueError(f"Table {table_schema}.{table} not found")
+
+            indexes = session.execute(
+                text("SELECT indexdef FROM pg_indexes WHERE schemaname = :schema AND tablename = :table"),
+                {"schema": table_schema, "table": table},
+            ).fetchall()
+            estimated_rows = session.execute(
+                text("SELECT reltuples::bigint FROM pg_class WHERE oid = to_regclass(:qualified)"),
+                {"qualified": f"{table_schema}.{table}"},
+            ).scalar()
+
+            documented = config.columns if config else {}
+            return {
+                "table": table,
+                "description": config.description if config else "",
+                "estimated_rows": estimated_rows,
+                "columns": [
+                    {
+                        "name": name,
+                        "type": data_type,
+                        "nullable": nullable == "YES",
+                        **({"description": documented[name]} if documented.get(name) else {}),
+                    }
+                    for name, data_type, nullable in columns
+                ],
+                "indexes": [row[0] for row in indexes],
+            }
+
+        except SQLAlchemyError:
+            logger.exception("Database error while describing table")
             raise
 
         finally:
@@ -159,7 +262,7 @@ def build_tools(registry: DatabaseRegistry, max_rows: int = 200) -> list[BaseToo
 
         validate_query(query)
 
-        session = registry.get(database).get_session()
+        session = open_session(registry, database, statement_timeout_ms)
 
         try:
             logger.info("Executing fetch_one query on %r", database or registry.default)
@@ -211,7 +314,7 @@ def build_tools(registry: DatabaseRegistry, max_rows: int = 200) -> list[BaseToo
 
         validate_query(query)
 
-        session = registry.get(database).get_session()
+        session = open_session(registry, database, statement_timeout_ms)
 
         try:
             logger.info("Executing fetch_all query on %r", database or registry.default)
@@ -235,4 +338,4 @@ def build_tools(registry: DatabaseRegistry, max_rows: int = 200) -> list[BaseToo
         finally:
             session.close()
 
-    return [list_databases, list_tables, fetch_one, fetch_all]
+    return [list_databases, list_tables, describe_table, fetch_one, fetch_all]

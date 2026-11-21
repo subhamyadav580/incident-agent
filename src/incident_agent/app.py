@@ -1,43 +1,34 @@
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Union
-
-import yaml
+from typing import Optional
 
 from .harness.limits import ExecutionLimits
-from .harness.runtime import AgentHarness
+from .harness.runtime import AgentHarness, Connector, PrefetchStep
 from .plugins import Plugin, load_plugins
 
-
-def local_override_path(path: Union[str, Path]) -> Path:
-    """configs/agent.yaml -> configs/agent.local.yaml"""
-    path = Path(path)
-    return path.with_name(f"{path.stem}.local{path.suffix}")
+DEFAULT_PROMPT_PATH = Path(__file__).parent / "prompts" / "system.md"
 
 
-def deep_merge(base: dict, override: dict) -> dict:
-    """Merge override into base: nested dicts merge, everything else replaces."""
-    merged = dict(base)
-    for key, value in override.items():
-        if isinstance(value, dict) and isinstance(merged.get(key), dict):
-            merged[key] = deep_merge(merged[key], value)
-        else:
-            merged[key] = value
-    return merged
+def default_system_prompt() -> str:
+    return DEFAULT_PROMPT_PATH.read_text(encoding="utf-8")
 
 
-def load_config(path: Union[str, Path]) -> dict:
-    """
-    Load agent.yaml, then merge agent.local.yaml from the same directory on top
-    if it exists. The local file is gitignored and holds per-developer settings.
-    """
-    config = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
+@dataclass
+class AgentConfig:
+    """Everything about the agent except its data sources."""
 
-    local_path = local_override_path(path)
-    if local_path.exists():
-        config = deep_merge(config, yaml.safe_load(local_path.read_text(encoding="utf-8")) or {})
-
-    return config
+    model_name: str = "gpt-4.1-mini"
+    # Any provider supported by LangChain's init_chat_model (openai, anthropic,
+    # google_genai, ollama, ...); its integration package must be installed.
+    model_provider: Optional[str] = "openai"
+    # Falls back to the provider's environment variable (OPENAI_API_KEY, ...).
+    model_api_key: Optional[str] = None
+    router_enabled: bool = True
+    router_model_name: Optional[str] = None
+    max_steps: int = 8
+    # Appended to the built-in prompt: your team's terms, service map, runbooks.
+    extra_instructions: str = ""
 
 
 class IncidentAgent:
@@ -49,6 +40,22 @@ class IncidentAgent:
 
     def investigate(self, message: str, run_id: Optional[str] = None) -> str:
         return self.harness.run(task=message, run_id=run_id or str(uuid.uuid4()))
+
+    def investigate_with_details(self, message: str, run_id: Optional[str] = None) -> dict:
+        """
+        Like investigate(), also returning the intent, number of model steps and
+        each plugin's structured prefetch evidence ({plugin name: evidence}).
+        """
+        for plugin in self.plugins:
+            if plugin.prefetch is not None and hasattr(plugin.prefetch, "last_evidence"):
+                plugin.prefetch.last_evidence = None
+        result = self.harness.run_with_details(task=message, run_id=run_id or str(uuid.uuid4()))
+        result["evidence"] = {
+            plugin.name: plugin.prefetch.last_evidence
+            for plugin in self.plugins
+            if getattr(plugin.prefetch, "last_evidence", None) is not None
+        }
+        return result
 
     def close(self) -> None:
         for plugin in self.plugins:
@@ -62,14 +69,12 @@ class IncidentAgent:
         self.close()
 
 
-def build_agent(config: dict) -> IncidentAgent:
+def build_agent(config: AgentConfig, plugins_config: Optional[dict] = None) -> IncidentAgent:
     """
-    Build an agent from a parsed agent.yaml.
-
-    Tools come from every enabled plugin. `tools.enabled` optionally narrows
-    them to an allowlist.
+    Build an agent from its config and the options of each data-source plugin,
+    e.g. {"postgres": {"enabled": True, "databases": [...]}}.
     """
-    plugins = load_plugins(config.get("plugins"))
+    plugins = load_plugins(plugins_config or {})
 
     tools = []
     seen = {}
@@ -83,16 +88,25 @@ def build_agent(config: dict) -> IncidentAgent:
             seen[plugin_tool.name] = plugin.name
             tools.append(plugin_tool)
 
-    allowed_tools = (config.get("tools") or {}).get("enabled") or [t.name for t in tools]
+    system_prompt = default_system_prompt()
+    if config.extra_instructions.strip():
+        system_prompt += "\n\n# Team instructions\n\n" + config.extra_instructions.strip()
 
-    model = config.get("model") or {}
     harness = AgentHarness(
-        model_name=model["name"],
-        model_provider=model.get("provider"),
-        prompt_path=config["prompts"]["system"],
+        model_name=config.model_name,
+        model_provider=config.model_provider,
+        model_api_key=config.model_api_key,
+        system_prompt=system_prompt,
         tools=tools,
-        allowed_tools=allowed_tools,
-        limits=ExecutionLimits(**(config.get("limits") or {})),
-        prefetchers=[plugin.prefetch for plugin in plugins if plugin.prefetch],
+        allowed_tools=[t.name for t in tools],
+        limits=ExecutionLimits(max_steps=config.max_steps),
+        prefetchers=[
+            PrefetchStep(name=plugin.name, run=plugin.prefetch, intents=plugin.prefetch_intents)
+            for plugin in plugins if plugin.prefetch
+        ],
+        connectors=[Connector(name=plugin.name, instructions=plugin.instructions) for plugin in plugins],
+        router=config.router_enabled,
+        router_model_name=config.router_model_name,
+        router_model_provider=config.model_provider,
     )
     return IncidentAgent(harness, plugins)

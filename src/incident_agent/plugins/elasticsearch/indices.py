@@ -1,10 +1,8 @@
 import logging
 import re
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Optional
 
-import yaml
 from elasticsearch import Elasticsearch
 
 logger = logging.getLogger(__name__)
@@ -61,24 +59,15 @@ def _parse_group(prefix: str, value) -> IndexGroupConfig:
     )
 
 
-def load_index_config(path: Optional[str]) -> dict[str, IndexGroupConfig]:
+def parse_index_config(index_prefixes: Optional[dict]) -> dict[str, IndexGroupConfig]:
     """
-    Read `index_prefixes` from a YAML file. Each entry is either a description
-    string or a mapping with description / fields / search_fields / timestamp_field.
+    Parse `{prefix: description | {description, fields, search_fields, timestamp_field}}`.
 
-    Only described prefixes are searched by the prefetch step, so the file doubles
-    as the list of indices the agent should look at first.
+    Only described prefixes are searched by the prefetch step.
     """
-    if not path:
-        return {}
-    file = Path(path)
-    if not file.exists():
-        logger.warning("Index config file %s not found; no index groups are described", file)
-        return {}
-    config = yaml.safe_load(file.read_text(encoding="utf-8")) or {}
     return {
         prefix: _parse_group(prefix, value)
-        for prefix, value in (config.get("index_prefixes") or {}).items()
+        for prefix, value in (index_prefixes or {}).items()
     }
 
 
@@ -130,3 +119,15 @@ def index_groups(es: Elasticsearch, index_config: dict[str, IndexGroupConfig]) -
             "config": config,
         })
     return result
+
+
+def flatten_mapping(properties: dict, prefix: str = "") -> list[dict]:
+    """[{name, type}] for every leaf field of a mapping, with dotted names for objects."""
+    fields = []
+    for name, meta in sorted((properties or {}).items()):
+        path = f"{prefix}{name}"
+        if "properties" in meta:
+            fields.extend(flatten_mapping(meta["properties"], f"{path}."))
+        else:
+            fields.append({"name": path, "type": meta.get("type", "object")})
+    return fields

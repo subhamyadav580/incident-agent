@@ -1,0 +1,160 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
+@import "tailwindcss";
+
+/* Dark mode follows the `dark` class on <html>, set before first paint in index.html. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ---- Design tokens -------------------------------------------------------
+   Semantic colors as CSS variables, light by default and redefined for dark.
+   Status colors meet WCAG 3:1 for UI elements on their surfaces in both themes
+   and are always paired with an icon or label in components. */
+:root {
+  /* Native controls and scrollbars follow the app theme, not the OS setting. */
+  color-scheme: light;
+  --bg: #f4f6fa;
+  --surface: #ffffff;
+  --surface-2: #f6f8fb;
+  --hover: #eef2f8;
+  --line: #e3e8f0;
+  --line-strong: #cfd6e2;
+  --fg: #141922;
+  --fg-2: #3b4555;
+  --muted: #5f6b7f;
+  --accent: #2f6fe4;
+  --accent-soft: rgb(47 111 228 / 0.1);
+  --ok: #18874d;
+  --ok-soft: rgb(24 135 77 / 0.1);
+  --warn: #a35f00;
+  --warn-soft: rgb(163 95 0 / 0.1);
+  --err: #c9343a;
+  --err-soft: rgb(201 52 58 / 0.1);
+  --violet: #6d47d1;
+  --violet-soft: rgb(109 71 209 / 0.1);
+  --chart: #2f6fe4;
+  --chart-fill: rgb(47 111 228 / 0.14);
+  --shadow: 0 10px 30px rgb(20 30 50 / 0.12);
+
+  /* density (data-density on <html>) */
+  --row-y: 0.7rem;
+  --pad: 1rem;
+}
+
+.dark {
+  color-scheme: dark;
+  --bg: #0b0e14;
+  --surface: #12171f;
+  --surface-2: #171d27;
+  --hover: #1c2330;
+  --line: #222a37;
+  --line-strong: #2e3848;
+  --fg: #e7eaf0;
+  --fg-2: #b3bccb;
+  --muted: #8591a5;
+  --accent: #5b93ff;
+  --accent-soft: rgb(91 147 255 / 0.14);
+  --ok: #34c77b;
+  --ok-soft: rgb(52 199 123 / 0.14);
+  --warn: #f2a53d;
+  --warn-soft: rgb(242 165 61 / 0.14);
+  --err: #f45b60;
+  --err-soft: rgb(244 91 96 / 0.14);
+  --violet: #a985f5;
+  --violet-soft: rgb(169 133 245 / 0.14);
+  --chart: #5b93ff;
+  --chart-fill: rgb(91 147 255 / 0.18);
+  --shadow: 0 10px 30px rgb(0 0 0 / 0.4);
+}
+
+[data-density="compact"] {
+  --row-y: 0.4rem;
+  --pad: 0.75rem;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-hover: var(--hover);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-fg: var(--fg);
+  --color-fg-2: var(--fg-2);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-ok: var(--ok);
+  --color-ok-soft: var(--ok-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-err: var(--err);
+  --color-err-soft: var(--err-soft);
+  --color-violet: var(--violet);
+  --color-violet-soft: var(--violet-soft);
+  --color-chart: var(--chart);
+  --color-chart-fill: var(--chart-fill);
+  --shadow-drawer: var(--shadow);
+  --spacing-row: var(--row-y);
+  --spacing-pad: var(--pad);
+  --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --animate-pop-in: pop-in 0.16s ease-out;
+  --animate-fade-in: fade-in 0.15s ease-out;
+}
+
+@keyframes pop-in {
+  from { transform: translateY(8px) scale(0.985); opacity: 0; }
+}
+@keyframes fade-in {
+  from { opacity: 0; }
+}
+
+@layer base {
+  html, body, #root { height: 100%; }
+  body {
+    @apply bg-bg font-sans text-[14px] leading-normal text-fg antialiased;
+  }
+  ::selection { background: var(--accent-soft); }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+}
+
+@layer components {
+  /* Checkbox and radio drawn with the design tokens in both themes. */
+  .check, .radio {
+    @apply inline-grid size-4 shrink-0 cursor-pointer appearance-none place-content-center border border-line-strong bg-surface
+      transition-colors hover:border-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent
+      disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .check { @apply rounded-[4px]; }
+  .check::before {
+    content: "";
+    @apply size-2.5 scale-0 bg-white transition-transform;
+    clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
+  }
+  .check:checked { @apply border-accent bg-accent; }
+  .check:checked::before { @apply scale-100; }
+  .radio { @apply rounded-full; }
+  .radio::before {
+    content: "";
+    @apply size-2 scale-0 rounded-full bg-accent transition-transform;
+  }
+  .radio:checked { @apply border-accent; }
+  .radio:checked::before { @apply scale-100; }
+}
+
+/* Markdown rendered from agent reports (react-markdown, no raw HTML). */
+@layer components {
+  .prose-report { @apply text-fg-2 break-words; }
+  .prose-report p { @apply mb-2 last:mb-0; }
+  .prose-report strong { @apply font-semibold text-fg; }
+  .prose-report ul, .prose-report ol { @apply my-1 pl-5; }
+  .prose-report ul { @apply list-disc; }
+  .prose-report ol { @apply list-decimal; }
+  .prose-report li + li { @apply mt-1; }
+  .prose-report code { @apply rounded bg-surface-2 px-1.5 py-0.5 font-mono text-[12px] text-fg; }
+  .prose-report pre { @apply my-2 overflow-x-auto rounded-lg bg-surface-2 p-3; }
+  .prose-report pre code { @apply bg-transparent p-0; }
+  .prose-report h1, .prose-report h2, .prose-report h3 { @apply mt-3 mb-1.5 text-sm font-semibold text-fg; }
+  .prose-report table { @apply my-2 w-full text-[13px]; }
+  .prose-report th, .prose-report td { @apply border-b border-line px-2 py-1 text-left; }
+  .prose-report a { @apply text-accent underline-offset-2 hover:underline; }
+}

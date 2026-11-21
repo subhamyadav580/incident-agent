@@ -1,31 +1,29 @@
-import os
 from typing import Optional
 
 from elasticsearch import Elasticsearch
 
 
-# Connection settings come from the environment so secrets never live in config files:
-#   ES_HOSTS          comma-separated URLs (default http://localhost:9200)
-#   ES_API_KEY        API key auth, or
-#   ES_USERNAME / ES_PASSWORD   basic auth
-#   ES_VERIFY_CERTS   "false" to skip TLS verification (default true)
-#   ES_CA_CERTS       path to a CA bundle
-def create_client(request_timeout: int = 30, max_retries: int = 3) -> Elasticsearch:
-    hosts = [host.strip() for host in os.environ.get("ES_HOSTS", "http://localhost:9200").split(",") if host.strip()]
+# Connection settings (hosts, auth, TLS) are stored per connector in the app database.
+def create_client(
+    request_timeout: int = 30,
+    max_retries: int = 3,
+    connection: Optional[dict] = None,
+) -> Elasticsearch:
+    connection = connection or {}
 
-    api_key: Optional[str] = os.environ.get("ES_API_KEY") or None
-    username = os.environ.get("ES_USERNAME")
-    password = os.environ.get("ES_PASSWORD")
+    hosts = connection.get("hosts") or "http://localhost:9200"
+    if isinstance(hosts, str):
+        hosts = [host.strip() for host in hosts.split(",") if host.strip()]
 
     kwargs = {}
-    if api_key:
-        kwargs["api_key"] = api_key
-    elif username and password:
-        kwargs["basic_auth"] = (username, password)
+    if connection.get("api_key"):
+        kwargs["api_key"] = connection["api_key"]
+    elif connection.get("username") and connection.get("password"):
+        kwargs["basic_auth"] = (connection["username"], connection["password"])
 
-    if os.environ.get("ES_CA_CERTS"):
-        kwargs["ca_certs"] = os.environ["ES_CA_CERTS"]
-    if os.environ.get("ES_VERIFY_CERTS", "true").strip().lower() in {"0", "false", "no"}:
+    if connection.get("ca_certs"):
+        kwargs["ca_certs"] = connection["ca_certs"]
+    if connection.get("verify_certs") is False:
         kwargs["verify_certs"] = False
 
     return Elasticsearch(

@@ -1,0 +1,2 @@
+class InvestigationNotFound(Exception):
+    pass

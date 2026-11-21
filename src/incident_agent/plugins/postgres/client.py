@@ -1,59 +1,12 @@
 import logging
-import os
-import re
 from threading import Lock
-from typing import Dict, Mapping, Optional
+from typing import Dict, Optional
 
 from sqlalchemy import create_engine
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker, Session
 
 logger = logging.getLogger(__name__)
-
-# Env conventions (a database's name comes from its env var):
-#   <NAME>_DATABASE_URL      -> registered as "<name>", e.g. ORDERS_DATABASE_URL -> "orders"
-#   DATABASE_URL_<NAME>      -> same thing, suffix style
-#   DATABASE_URL             -> registered as "default"
-#   <NAME>_DATABASE_DESC     -> optional description, surfaced by the list_databases tool
-#   DEFAULT_DATABASE=<name>  -> which database the tools use when none is given
-_URL_PATTERNS = (
-    re.compile(r"^([A-Za-z0-9_]+)_DATABASE_URL$"),
-    re.compile(r"^DATABASE_URL_([A-Za-z0-9_]+)$"),
-)
-_DESC_PATTERNS = (
-    re.compile(r"^([A-Za-z0-9_]+)_DATABASE_DESC$"),
-    re.compile(r"^DATABASE_DESC_([A-Za-z0-9_]+)$"),
-)
-
-
-def _match_name(key: str, patterns) -> Optional[str]:
-    for pattern in patterns:
-        match = pattern.match(key)
-        if match:
-            return match.group(1).lower()
-    return None
-
-
-def discover_databases(environ: Mapping[str, str]) -> Dict[str, Dict[str, str]]:
-    """Read all configured databases out of the environment."""
-    configs: Dict[str, Dict[str, str]] = {}
-
-    legacy_url = environ.get("DATABASE_URL", "").strip()
-    if legacy_url:
-        configs["default"] = {"url": legacy_url, "description": ""}
-
-    for key, value in environ.items():
-        name = _match_name(key, _URL_PATTERNS)
-        if name and value.strip():
-            configs[name] = {"url": value.strip(), "description": ""}
-
-    for key, value in environ.items():
-        name = _match_name(key, _DESC_PATTERNS)
-        if name and name in configs:
-            configs[name]["description"] = value.strip()
-
-    return configs
-
 
 def _safe_url(url: str) -> str:
     """Render a connection URL with the password masked, for logging."""
@@ -122,10 +75,7 @@ class DatabaseRegistry:
 
     def __init__(self, configs: Dict[str, Dict[str, str]], default: Optional[str] = None):
         if not configs:
-            raise RuntimeError(
-                "No database configured. Set <NAME>_DATABASE_URL (or DATABASE_URL) "
-                "in your environment or .env file."
-            )
+            raise RuntimeError("No database configured. Add a PostgreSQL connector.")
 
         self.databases = {
             name: Database(name, config["url"], config.get("description", ""))
@@ -135,14 +85,10 @@ class DatabaseRegistry:
         default = (default or "").strip().lower()
         if default and default not in self.databases:
             raise RuntimeError(
-                f"DEFAULT_DATABASE={default!r} is not configured. "
+                f"Default database {default!r} is not configured. "
                 f"Available: {', '.join(sorted(self.databases))}"
             )
         self.default = default or ("default" if "default" in self.databases else sorted(self.databases)[0])
-
-    @classmethod
-    def from_env(cls, environ: Mapping[str, str] = os.environ) -> "DatabaseRegistry":
-        return cls(discover_databases(environ), environ.get("DEFAULT_DATABASE"))
 
     def get(self, name: Optional[str] = None) -> Database:
         """Resolve a database by name, falling back to the configured default."""

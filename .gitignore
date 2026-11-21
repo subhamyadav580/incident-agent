@@ -9,21 +9,12 @@ wheels/
 # Virtual environments
 .venv
 
-# ---- Personal / deployment-specific: never pushed -------------------------
-# Rule: anything named *.local.* or .env* is yours. Shared defaults stay in
-# the committed file next to it (agent.yaml, *.example.yaml, .env.example).
-
-# Secrets
+# ---- Never pushed ----------------------------------------------------------
+# Secrets: app database URL, encryption key, optional provider API keys.
+# Connectors and settings live in the app database, not in files.
 .env
 .env.*
 !.env.example
-
-# Per-developer overrides, e.g. configs/agent.local.yaml, prompts/system.local.md
-*.local.*
-!*.example.*
-
-# Your cluster's index names and fields (template: configs/es_indices.example.yaml)
-configs/es_indices.yaml
 
 # Tool caches and reports
 .pytest_cache/
@@ -40,3 +31,8 @@ htmlcov/
 
 # Claude Code per-user settings
 .claude/settings.local.json
+
+# Frontend: dependencies and the build output served by the API
+frontend/node_modules/
+src/incident_agent/server/static/
+frontend/*.tsbuildinfo

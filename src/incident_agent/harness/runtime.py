@@ -1,4 +1,4 @@
-from pathlib import Path
+from dataclasses import dataclass
 from typing import Callable, Optional, Sequence
 
 from langchain_core.messages import (
@@ -13,7 +13,25 @@ from langgraph.prebuilt import ToolNode
 from .state import AgentState
 from .limits import ExecutionLimits
 from .policies import ToolPolicy
+from .router import INTENT_INSTRUCTIONS, Intent
 from .tracing import trace_event
+
+
+@dataclass(frozen=True)
+class PrefetchStep:
+    """A function run before the first model call for the given intents."""
+
+    name: str
+    run: Callable[[str], str]
+    intents: tuple[str, ...] = ("investigation",)
+
+
+@dataclass(frozen=True)
+class Connector:
+    """How the model should use one data source; added to the system prompt."""
+
+    name: str
+    instructions: str
 
 
 class AgentHarness:
@@ -22,15 +40,21 @@ class AgentHarness:
         *,
         model_name: str,
         model_provider: Optional[str] = None,
-        prompt_path: str,
+        model_api_key: Optional[str] = None,
+        system_prompt: str,
         tools: list,
         allowed_tools: list[str],
         limits: ExecutionLimits,
-        prefetchers: Sequence[Callable[[str], str]] = (),
+        prefetchers: Sequence[PrefetchStep] = (),
+        connectors: Sequence[Connector] = (),
+        router: bool = True,
+        router_model_name: Optional[str] = None,
+        router_model_provider: Optional[str] = None,
     ):
         self.limits = limits
         # Run once before the first model call; their output is added as evidence.
         self.prefetchers = list(prefetchers)
+        self.router_enabled = router
         self.policy = ToolPolicy(allowed_tools)
 
         # Only register explicitly allowed tools.
@@ -44,17 +68,34 @@ class AgentHarness:
             tool_map[name] for name in allowed_tools
         ]
 
-        self.system_prompt = Path(
-            prompt_path
-        ).read_text(encoding="utf-8")
+        self.system_prompt = system_prompt
+
+        described = [connector for connector in connectors if connector.instructions.strip()]
+        if described:
+            self.system_prompt += "\n\n# Connected data sources\n" + "".join(
+                f"\n## {connector.name}\n\n{connector.instructions.strip()}\n"
+                for connector in described
+            )
 
         # Any provider supported by LangChain's init_chat_model (openai, anthropic,
         # ollama, ...); its integration package must be installed.
-        self.model = init_chat_model(
+        # Without an explicit key the provider reads its own env var (OPENAI_API_KEY, ...).
+        credentials = {"api_key": model_api_key} if model_api_key else {}
+        self.chat_model = init_chat_model(
             model_name,
             model_provider=model_provider,
             temperature=0,
-        ).bind_tools(self.tools)
+            **credentials,
+        )
+        self.model = self.chat_model.bind_tools(self.tools)
+
+        if router:
+            router_model = (
+                init_chat_model(router_model_name, model_provider=router_model_provider, temperature=0, **credentials)
+                if router_model_name
+                else self.chat_model
+            )
+            self.router = router_model.with_structured_output(Intent)
 
         self.graph = self._build_graph()
 
@@ -85,18 +126,56 @@ class AgentHarness:
             "steps": next_step,
         }
 
-    def _prefetch(self, state: AgentState):
+    def _classify(self, state: AgentState):
         run_id = state["run_id"]
         task = state["messages"][0].content
 
+        try:
+            result = self.router.invoke([
+                SystemMessage(content=INTENT_INSTRUCTIONS),
+                HumanMessage(content=task),
+            ])
+            intent, reason = result.intent, result.reason
+        except Exception as error:
+            # Investigating a chat message costs a little; ignoring an incident costs more.
+            intent, reason = "investigation", f"router failed: {error!r}"
+
+        trace_event(run_id, "intent_classified", intent=intent, reason=reason)
+        return {"intent": intent}
+
+    def _after_classify(self, state: AgentState):
+        if state["intent"] == "conversation":
+            return "converse"
+        return "prefetch" if self.prefetchers else "agent"
+
+    def _converse(self, state: AgentState):
+        # No tools: answer from the conversation and the system prompt.
+        response = self.chat_model.invoke([
+            SystemMessage(content=self.system_prompt + (
+                "\n\n# This message\n\nThe user is chatting, not reporting an incident. "
+                "Reply briefly and helpfully. If they ask what you can do, describe the "
+                "connected data sources and suggest pasting an error message or an id."
+            )),
+            *state["messages"],
+        ])
+        trace_event(state["run_id"], "conversation_reply")
+        return {"messages": [response], "steps": state["steps"] + 1}
+
+    def _prefetch(self, state: AgentState):
+        run_id = state["run_id"]
+        task = state["messages"][0].content
+        intent = state.get("intent", "investigation")
+
         messages = []
 
-        for prefetch in self.prefetchers:
-            name = getattr(prefetch, "__name__", type(prefetch).__name__)
+        for step in self.prefetchers:
+            if intent not in step.intents:
+                continue
+            name = step.name
             trace_event(run_id, "prefetch_started", prefetch=name)
 
             try:
-                evidence = prefetch(task)
+                evidence = step.run(task)
             except Exception as error:
                 # The agent can still investigate with its tools, so don't fail the run.
                 trace_event(run_id, "prefetch_failed", prefetch=name, error=repr(error))
@@ -149,8 +228,20 @@ class AgentHarness:
 
         if self.prefetchers:
             builder.add_node("prefetch", self._prefetch)
-            builder.add_edge(START, "prefetch")
             builder.add_edge("prefetch", "agent")
+
+        if self.router_enabled:
+            builder.add_node("classify", self._classify)
+            builder.add_node("converse", self._converse)
+            builder.add_edge(START, "classify")
+            builder.add_conditional_edges(
+                "classify",
+                self._after_classify,
+                {"converse": "converse", "prefetch": "prefetch" if self.prefetchers else "agent", "agent": "agent"},
+            )
+            builder.add_edge("converse", END)
+        elif self.prefetchers:
+            builder.add_edge(START, "prefetch")
         else:
             builder.add_edge(START, "agent")
 
@@ -169,7 +260,11 @@ class AgentHarness:
 
         return builder.compile()
 
-    def run(self, task: str, run_id: str):
+    def run(self, task: str, run_id: str) -> str:
+        return self.run_with_details(task, run_id)["report"]
+
+    def run_with_details(self, task: str, run_id: str) -> dict:
+        """Run and return {report, intent, steps, run_id}."""
         trace_event(run_id, "run_started")
 
         result = self.graph.invoke(
@@ -179,6 +274,8 @@ class AgentHarness:
                 ],
                 "steps": 0,
                 "run_id": run_id,
+                # Without the router every message is investigated.
+                "intent": "investigation",
             },
             config={
                 # Secondary safeguard against runaway graph loops.
@@ -191,7 +288,13 @@ class AgentHarness:
         trace_event(
             run_id,
             "run_completed",
+            intent=result.get("intent"),
             steps=result["steps"],
         )
 
-        return result["messages"][-1].content
+        return {
+            "report": result["messages"][-1].content,
+            "intent": result.get("intent"),
+            "steps": result["steps"],
+            "run_id": run_id,
+        }
