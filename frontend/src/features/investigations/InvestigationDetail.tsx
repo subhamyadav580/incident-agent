@@ -80,7 +80,7 @@ export function InvestigationDetail({ id }: { id: string }) {
   const tabs = [
     { id: "overview" as const, label: structured ? "Overview" : "Answer" },
     { id: "evidence" as const, label: "Evidence", count: evidenceCount(evidence) },
-    ...(structured ? [{ id: "timeline" as const, label: "Timeline", count: timelineCount }] : []),
+    ...(structured && sections.timeline ? [{ id: "timeline" as const, label: "Timeline", count: timelineCount }] : []),
     { id: "workflow" as const, label: "Workflow", count: investigation.trace?.length || undefined },
     { id: "report" as const, label: "Report" },
   ];

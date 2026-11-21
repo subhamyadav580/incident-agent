@@ -49,8 +49,12 @@ What happened, in one or two sentences.
 The likely cause. Start each point with **Fact:** or **Hypothesis:**.
 
 ## Timeline
-A bullet list, oldest first, one event per bullet: `HH:MM:SS UTC — service — event`.
-Convert every timestamp to UTC before ordering.
+A bullet list, oldest first, one event per bullet, exactly in this form:
+`YYYY-MM-DD HH:MM:SS UTC — service — event`
+Convert every timestamp to UTC first (e.g. 19:08:11+05:30 is 13:38:11 UTC). If a
+time has no timezone (e.g. a database column), write it as found and append
+`(no timezone)` instead of guessing. Leave this section out when the evidence
+has no timestamps; describe the sequence in Root cause instead.
 
 ## Evidence gaps
 What was not found or could not be checked, and the next check worth doing.
