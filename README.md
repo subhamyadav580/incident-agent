@@ -8,6 +8,7 @@ Paste an error, a failing id or a question. The agent searches your logs,
 databases and code, follows the affected request across services and writes a
 report: what happened, the likely cause, a timeline, and what it couldn't verify.
 
+**[🌐 Website](https://subhamyadav580.github.io/incident-agent/)** ·
 [Setup](#setup) ·
 [Using the app](#using-the-app) ·
 [How it works](#how-it-works) ·
