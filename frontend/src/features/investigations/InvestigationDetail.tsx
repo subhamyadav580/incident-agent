@@ -12,10 +12,11 @@ import { Tabs } from "@/components/ui/Tabs";
 import { formatDateTime, formatDuration } from "@/lib/format";
 import { isStructuredReport, splitReport } from "@/lib/report";
 import { parseTimeline } from "@/lib/timeline";
-import { evidenceCount, RecordsPanel, ServicesTable, TracesPanel } from "./Evidence";
+import { CodePanel, evidenceCount, RecordsPanel, ServicesTable, TracesPanel } from "./Evidence";
 import { TimelinePanel } from "./Timeline";
+import { WorkflowPanel } from "./Workflow";
 
-type Tab = "overview" | "evidence" | "timeline" | "report";
+type Tab = "overview" | "evidence" | "timeline" | "workflow" | "report";
 
 function Header({ investigation }: { investigation: Investigation }) {
   const remove = useDeleteInvestigation();
@@ -80,6 +81,7 @@ export function InvestigationDetail({ id }: { id: string }) {
     { id: "overview" as const, label: structured ? "Overview" : "Answer" },
     { id: "evidence" as const, label: "Evidence", count: evidenceCount(evidence) },
     ...(structured ? [{ id: "timeline" as const, label: "Timeline", count: timelineCount }] : []),
+    { id: "workflow" as const, label: "Workflow", count: investigation.trace?.length || undefined },
     { id: "report" as const, label: "Report" },
   ];
 
@@ -99,6 +101,7 @@ export function InvestigationDetail({ id }: { id: string }) {
           )}
           {sections["root cause"] && <Section title="Root cause" icon={<Target />} tone="violet" accent="border-l-3 border-l-violet">{sections["root cause"]}</Section>}
           <ServicesTable evidence={evidence} limit={5} />
+          <CodePanel evidence={evidence} limit={3} />
           <RecordsPanel evidence={evidence} />
           {sections["evidence gaps"] && <Section title="Evidence gaps" icon={<AlertTriangle />} tone="warn" accent="border-l-3 border-l-warn">{sections["evidence gaps"]}</Section>}
           {extra.map(([name, body]) => <Section key={name} title={name.replace(/^./, (c) => c.toUpperCase())} icon={<ListChecks />}>{body}</Section>)}
@@ -116,6 +119,7 @@ export function InvestigationDetail({ id }: { id: string }) {
         evidenceCount(evidence) ? (
           <div className="space-y-4">
             <ServicesTable evidence={evidence} />
+            <CodePanel evidence={evidence} />
             <TracesPanel evidence={evidence} />
             <RecordsPanel evidence={evidence} />
           </div>
@@ -125,6 +129,8 @@ export function InvestigationDetail({ id }: { id: string }) {
       )}
 
       {tab === "timeline" && sections.timeline && <TimelinePanel markdown={sections.timeline} />}
+
+      {tab === "workflow" && <WorkflowPanel investigation={investigation} />}
 
       {tab === "report" && (
         <Panel>

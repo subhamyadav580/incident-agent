@@ -1,4 +1,4 @@
-import { ChevronRight, Database, Layers, Route } from "lucide-react";
+import { ChevronRight, Code2, Database, Layers, Route } from "lucide-react";
 import { Fragment, useState } from "react";
 import type { Evidence } from "@/api/types";
 import { Badge } from "@/components/ui/Badge";
@@ -8,7 +8,49 @@ import { cn } from "@/components/ui/cn";
 import { formatDateTime, formatNumber } from "@/lib/format";
 
 export const evidenceCount = (evidence: Evidence) =>
-  (evidence.services?.length ?? 0) + (evidence.traces?.length ?? 0) + (evidence.records?.filter((r) => r.rows.length || r.error).length ?? 0);
+  (evidence.services?.length ?? 0) +
+  (evidence.traces?.length ?? 0) +
+  (evidence.records?.filter((r) => r.rows.length || r.error).length ?? 0) +
+  (evidence.code?.filter((c) => c.file).length ?? 0);
+
+/** Where the error text appears in the connected repositories, with surrounding lines. */
+export function CodePanel({ evidence, limit }: { evidence: Evidence; limit?: number }) {
+  const matches = (evidence.code ?? []).filter((match) => match.file);
+  const errors = (evidence.code ?? []).filter((match) => match.error);
+  if (!matches.length && !errors.length) return null;
+  return (
+    <Panel>
+      <PanelHeader title="Code references" icon={<Code2 />} tone="violet">
+        <span className="text-[12px] text-muted">where the error text appears in your repositories</span>
+      </PanelHeader>
+      <PanelBody className="space-y-3">
+        {errors.map((error, index) => (
+          <div key={`e${index}`} className="text-[12.5px] text-err">{error.repo}: {error.error}</div>
+        ))}
+        {matches.slice(0, limit).map((match, index) => (
+          <div key={index} className="overflow-hidden rounded-lg border border-line">
+            <div className="flex flex-wrap items-center gap-2 border-b border-line bg-surface-2 px-3 py-1.5">
+              <Badge tone="violet">{match.repo}</Badge>
+              <span className="min-w-0 truncate font-mono text-[12px] text-fg" title={match.file ?? ""}>
+                {match.file}:{match.line}
+              </span>
+              {match.term && <span className="ml-auto truncate text-[11.5px] text-muted">matched “{match.term}”</span>}
+            </div>
+            {match.snippet && (
+              <pre className="overflow-x-auto px-3 py-2 font-mono text-[12px] leading-relaxed text-fg-2">
+                {match.snippet.split("\n").map((line, lineIndex) => {
+                  const hit = line.trimStart().startsWith(String(match.line));
+                  return <div key={lineIndex} className={hit ? "-mx-3 bg-violet-soft px-3 text-fg" : undefined}>{line}</div>;
+                })}
+              </pre>
+            )}
+          </div>
+        ))}
+        {limit && matches.length > limit && <div className="text-[12px] text-muted">{matches.length - limit} more in the Evidence tab.</div>}
+      </PanelBody>
+    </Panel>
+  );
+}
 
 export function ServicesTable({ evidence, limit }: { evidence: Evidence; limit?: number }) {
   const [open, setOpen] = useState<string | null>(null);

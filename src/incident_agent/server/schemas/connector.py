@@ -58,6 +58,9 @@ class FieldSpec(BaseModel):
     help: str = ""
     secret: bool = False
     group: Literal["main", "advanced"] = "main"
+    # Only shown (and only meaningful) when another field has one of these values,
+    # e.g. {"source": ["remote"]}.
+    show_if: Optional[dict[str, list[str]]] = None
 
 
 class ConnectorTypeOut(BaseModel):

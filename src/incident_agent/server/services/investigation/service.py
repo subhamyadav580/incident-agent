@@ -1,3 +1,4 @@
+import json
 import logging
 import re
 import time
@@ -56,6 +57,7 @@ class InvestigationService:
         record.steps = result["steps"]
         record.duration_ms = int((time.monotonic() - started) * 1000)
         record.evidence = summarize_evidence(result["evidence"])
+        record.trace = json.loads(json.dumps(result.get("trace", []), default=str))
         return self._out(self.repo.add(record))
 
     def get(self, investigation_id: str) -> InvestigationOut:
@@ -119,4 +121,5 @@ class InvestigationService:
             error=record.error,
             connectors=record.connectors or [],
             evidence=record.evidence or {},
+            trace=record.trace or [],
         )

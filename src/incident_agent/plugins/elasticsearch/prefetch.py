@@ -25,60 +25,16 @@ from .indices import IndexGroupConfig, group_index, index_groups
 
 logger = logging.getLogger(__name__)
 
-# Identifier-looking tokens: mixed letters+digits (order ids, trace ids, UUIDs,
-# 32-hex request ids, abc123) or long pure numbers. Override per deployment with
-# the `identifier_patterns` option.
-DEFAULT_IDENTIFIER_PATTERNS = (
-    r"\b(?=[A-Za-z0-9_-]*\d)(?=[A-Za-z0-9_-]*[A-Za-z])[A-Za-z0-9_-]{6,}\b",
-    r"\b\d{8,}\b",
+from ..signature import (  # noqa: E402  re-exported for callers of this module
+    DEFAULT_IDENTIFIER_PATTERNS,
+    _QUOTED,
+    extract_identifiers,
+    extract_signature,
 )
 
-# java.lang.NumberFormatException, HttpResponseException, ValueError, ...
-_EXCEPTION = re.compile(r"\b(?:[a-z_]\w*\.)*[A-Z]\w*(?:Exception|Error)\b")
-_QUOTED = re.compile(r"'[^']*'|\"[^\"]*\"")
-# URL paths are fixed parts of an error (/connector/v1/search), kept as a phrase.
-_PATH = re.compile(r"(?<![\w/])/[A-Za-z][\w.-]*(?:/[\w.-]+)*")
-# Phrases are split at variable parts and punctuation that rarely sits inside a
-# fixed log phrase.
-_PHRASE_BREAK = re.compile(r"[\d:=,;()\[\]{}<>|/\\]+|\s-\s|\.\s")
-_WORD = re.compile(r"[A-Za-z][A-Za-z_-]*")
-MIN_PHRASE_WORDS = 3
-MAX_PHRASES = 6
 # Ids taken from log lines to trace; shorter tokens are mostly noise (http11, v2).
 MIN_TRACED_ID_LENGTH = 8
-
-
-def extract_identifiers(text: str, patterns: Sequence[re.Pattern]) -> list[str]:
-    """Pull ids out of free text, de-duplicated in order of appearance."""
-    found = [match for pattern in patterns for match in pattern.findall(text)]
-    return list(dict.fromkeys(found))
-
-
-def extract_signature(text: str, identifiers: Sequence[str]) -> tuple[list[str], list[str]]:
-    """
-    Split an error message into (exception class names, fixed phrases).
-
-    Variable parts (identifiers, numbers, quoted values) are cut out, so the
-    phrases match every occurrence of the error, not just this one.
-    """
-    exceptions = list(dict.fromkeys(_EXCEPTION.findall(text)))
-
-    remaining = _QUOTED.sub(" | ", text)
-    phrases = []
-    for path in _PATH.findall(remaining):
-        words = [part for part in re.split(r"[/.]", path) if part and part not in identifiers]
-        if words:
-            phrases.append(" ".join(words))
-    remaining = _PATH.sub(" | ", remaining)
-
-    for value in [*identifiers, *exceptions]:
-        remaining = remaining.replace(value, " | ")
-
-    for chunk in _PHRASE_BREAK.split(remaining):
-        words = _WORD.findall(chunk)
-        if len(words) >= MIN_PHRASE_WORDS:
-            phrases.append(" ".join(words))
-    return exceptions, list(dict.fromkeys(phrases))[:MAX_PHRASES]
+REACHABILITY_TIMEOUT = 5
 
 
 def _phrase_clause(text: str, fields: Sequence[str]) -> dict:
@@ -373,6 +329,9 @@ class LogPrefetcher:
     # -- entry points ---------------------------------------------------------
 
     def search(self, message: str) -> dict:
+        # Fail in seconds, not minutes, when the cluster is down or off-network.
+        if not self.es.options(request_timeout=REACHABILITY_TIMEOUT).ping():
+            raise ConnectionError(f"Elasticsearch is not reachable (no answer within {REACHABILITY_TIMEOUT}s)")
         identifiers = extract_identifiers(message, self.identifier_patterns)
         exceptions, phrases = extract_signature(message, identifiers)
         all_groups = index_groups(self.es, self.index_config)
@@ -432,9 +391,17 @@ class LogPrefetcher:
         return evidence
 
     def __call__(self, message: str) -> str:
+        self.last_summary = None
         evidence = self.search(message)
         # Structured result of the last call, for UIs (the model gets the rendered text).
         self.last_evidence = evidence
+        matched = sum(1 for result in evidence["error_occurrences"] if result.get("total"))
+        traced = sum(1 for trace in evidence["request_traces"] if trace["services"])
+        self.last_summary = (
+            f"{matched} service{'s' if matched != 1 else ''} matched, "
+            f"{traced} request id{'s' if traced != 1 else ''} traced"
+            + (" (index groups auto-discovered)" if evidence["searched_for"].get("discovered_groups") is not None else "")
+        )
 
         if not evidence["error_occurrences"] and not evidence["request_traces"]:
             return (

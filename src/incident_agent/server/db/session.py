@@ -40,8 +40,19 @@ def ensure_database() -> None:
         admin.dispose()
 
 
+# Columns added after a table was first created (create_all only creates
+# missing tables). Each statement must be idempotent.
+MIGRATIONS = (
+    "ALTER TABLE investigations ADD COLUMN IF NOT EXISTS trace JSONB NOT NULL DEFAULT '[]'::jsonb",
+)
+
+
 def init_db() -> None:
     from .. import models  # noqa: F401  registers the ORM models
 
     ensure_database()
-    Base.metadata.create_all(get_engine())
+    engine = get_engine()
+    Base.metadata.create_all(engine)
+    with engine.begin() as connection:
+        for statement in MIGRATIONS:
+            connection.execute(text(statement))

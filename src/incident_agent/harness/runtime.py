@@ -1,3 +1,4 @@
+import json
 from dataclasses import dataclass
 from typing import Callable, Optional, Sequence
 
@@ -5,16 +6,16 @@ from langchain_core.messages import (
     SystemMessage,
     AIMessage,
     HumanMessage,
+    ToolMessage,
 )
 from langchain.chat_models import init_chat_model
 from langgraph.graph import StateGraph, START, END
-from langgraph.prebuilt import ToolNode
 
 from .state import AgentState
 from .limits import ExecutionLimits
 from .policies import ToolPolicy
 from .router import INTENT_INSTRUCTIONS, Intent
-from .tracing import trace_event
+from .tracing import RunTrace, preview, trace_event
 
 
 @dataclass(frozen=True)
@@ -67,6 +68,9 @@ class AgentHarness:
         self.tools = [
             tool_map[name] for name in allowed_tools
         ]
+        self.tool_map = {tool.name: tool for tool in self.tools}
+        # Spans of runs in progress, by run id (graph nodes only get the state).
+        self._traces: dict[str, RunTrace] = {}
 
         self.system_prompt = system_prompt
 
@@ -95,31 +99,31 @@ class AgentHarness:
                 if router_model_name
                 else self.chat_model
             )
-            self.router = router_model.with_structured_output(Intent)
+            self.router = router_model.with_structured_output(Intent, include_raw=True)
 
         self.graph = self._build_graph()
 
+    def _trace(self, state: AgentState) -> RunTrace:
+        return self._traces.setdefault(state["run_id"], RunTrace(state["run_id"]))
+
+    @staticmethod
+    def _tokens(message) -> dict:
+        usage = getattr(message, "usage_metadata", None) or {}
+        return {key: usage[key] for key in ("input_tokens", "output_tokens") if key in usage}
+
     def _call_model(self, state: AgentState):
-        run_id = state["run_id"]
         next_step = state["steps"] + 1
 
-        trace_event(
-            run_id,
-            "model_call_started",
-            step=next_step,
-        )
-
-        response = self.model.invoke([
-            SystemMessage(content=self.system_prompt),
-            *state["messages"],
-        ])
-
-        trace_event(
-            run_id,
-            "model_call_completed",
-            step=next_step,
-            tool_calls=len(response.tool_calls),
-        )
+        with self._trace(state).span("model", f"Model step {next_step}") as span:
+            response = self.model.invoke([
+                SystemMessage(content=self.system_prompt),
+                *state["messages"],
+            ])
+            span["detail"].update(
+                self._tokens(response),
+                outcome="tool calls" if response.tool_calls else "answer",
+                tool_calls=[{"name": call["name"], "args": call["args"]} for call in response.tool_calls],
+            )
 
         return {
             "messages": [response],
@@ -127,20 +131,25 @@ class AgentHarness:
         }
 
     def _classify(self, state: AgentState):
-        run_id = state["run_id"]
         task = state["messages"][0].content
 
-        try:
-            result = self.router.invoke([
-                SystemMessage(content=INTENT_INSTRUCTIONS),
-                HumanMessage(content=task),
-            ])
-            intent, reason = result.intent, result.reason
-        except Exception as error:
-            # Investigating a chat message costs a little; ignoring an incident costs more.
-            intent, reason = "investigation", f"router failed: {error!r}"
+        with self._trace(state).span("intent", "Classify message") as span:
+            try:
+                result = self.router.invoke([
+                    SystemMessage(content=INTENT_INSTRUCTIONS),
+                    HumanMessage(content=task),
+                ])
+                parsed = result["parsed"]
+                if parsed is None:
+                    raise ValueError(result.get("parsing_error") or "no intent returned")
+                intent, reason = parsed.intent, parsed.reason
+                span["detail"].update(self._tokens(result["raw"]))
+            except Exception as error:
+                # Investigating a chat message costs a little; ignoring an incident costs more.
+                intent, reason = "investigation", f"router failed: {error!r}"
+                span["status"] = "error"
+            span["detail"].update(intent=intent, reason=reason)
 
-        trace_event(run_id, "intent_classified", intent=intent, reason=reason)
         return {"intent": intent}
 
     def _after_classify(self, state: AgentState):
@@ -150,44 +159,67 @@ class AgentHarness:
 
     def _converse(self, state: AgentState):
         # No tools: answer from the conversation and the system prompt.
-        response = self.chat_model.invoke([
-            SystemMessage(content=self.system_prompt + (
-                "\n\n# This message\n\nThe user is chatting, not reporting an incident. "
-                "Reply briefly and helpfully. If they ask what you can do, describe the "
-                "connected data sources and suggest pasting an error message or an id."
-            )),
-            *state["messages"],
-        ])
-        trace_event(state["run_id"], "conversation_reply")
+        with self._trace(state).span("model", "Reply") as span:
+            response = self.chat_model.invoke([
+                SystemMessage(content=self.system_prompt + (
+                    "\n\n# This message\n\nThe user is chatting, not reporting an incident. "
+                    "Reply briefly and helpfully. If they ask what you can do, describe the "
+                    "connected data sources and suggest pasting an error message or an id."
+                )),
+                *state["messages"],
+            ])
+            span["detail"].update(self._tokens(response), outcome="answer")
         return {"messages": [response], "steps": state["steps"] + 1}
 
     def _prefetch(self, state: AgentState):
-        run_id = state["run_id"]
         task = state["messages"][0].content
         intent = state.get("intent", "investigation")
+        trace = self._trace(state)
 
         messages = []
 
         for step in self.prefetchers:
             if intent not in step.intents:
                 continue
-            name = step.name
-            trace_event(run_id, "prefetch_started", prefetch=name)
 
-            try:
-                evidence = step.run(task)
-            except Exception as error:
-                # The agent can still investigate with its tools, so don't fail the run.
-                trace_event(run_id, "prefetch_failed", prefetch=name, error=repr(error))
-                evidence = (
-                    f"Automatic pre-fetch {name} failed: {error!r}. "
-                    "Gather this evidence yourself with the available tools."
-                )
-            else:
-                trace_event(run_id, "prefetch_completed", prefetch=name, chars=len(evidence))
+            with trace.span("prefetch", step.name) as span:
+                try:
+                    evidence = step.run(task)
+                except Exception as error:
+                    # The agent can still investigate with its tools, so don't fail the run.
+                    span["status"] = "error"
+                    span["detail"]["error"] = preview(str(error) or repr(error), 300)
+                    evidence = (
+                        f"Automatic pre-fetch {step.name} failed: {error!r}. "
+                        "Gather this evidence yourself with the available tools."
+                    )
+                else:
+                    span["detail"]["chars"] = len(evidence)
+                    summary = getattr(step.run, "last_summary", None)
+                    if summary:
+                        span["detail"]["summary"] = summary
 
             messages.append(HumanMessage(content=evidence))
 
+        return {"messages": messages}
+
+    def _run_tools(self, state: AgentState):
+        """Execute the tool calls of the last model message, one span per call."""
+        trace = self._trace(state)
+        messages = []
+        for call in state["messages"][-1].tool_calls:
+            with trace.span("tool", call["name"], args=call["args"]) as span:
+                try:
+                    self.policy.validate_tool(call["name"])
+                    output = self.tool_map[call["name"]].invoke(call["args"])
+                    content = output if isinstance(output, str) else json.dumps(output, ensure_ascii=False, default=str)
+                    span["detail"].update(result_chars=len(content), result=preview(content))
+                except Exception as error:
+                    # Return the error to the model so it can correct the call.
+                    content = f"Error: {error}"
+                    span["status"] = "error"
+                    span["detail"]["error"] = preview(str(error), 300)
+            messages.append(ToolMessage(content=content, tool_call_id=call["id"], name=call["name"]))
         return {"messages": messages}
 
     def _route(self, state: AgentState):
@@ -202,11 +234,8 @@ class AgentHarness:
         return "tools"
 
     def _limit_reached(self, state: AgentState):
-        trace_event(
-            state["run_id"],
-            "step_limit_reached",
-            steps=state["steps"],
-        )
+        with self._trace(state).span("limit", "Step budget reached", steps=state["steps"]) as span:
+            span["status"] = "error"
 
         return {
             "messages": [
@@ -223,7 +252,7 @@ class AgentHarness:
         builder = StateGraph(AgentState)
 
         builder.add_node("agent", self._call_model)
-        builder.add_node("tools", ToolNode(self.tools))
+        builder.add_node("tools", self._run_tools)
         builder.add_node("limit_reached", self._limit_reached)
 
         if self.prefetchers:
@@ -264,10 +293,32 @@ class AgentHarness:
         return self.run_with_details(task, run_id)["report"]
 
     def run_with_details(self, task: str, run_id: str) -> dict:
-        """Run and return {report, intent, steps, run_id}."""
+        """Run and return {report, intent, steps, run_id, trace}."""
         trace_event(run_id, "run_started")
+        trace = self._traces[run_id] = RunTrace(run_id)
 
-        result = self.graph.invoke(
+        try:
+            result = self._invoke(task, run_id)
+        finally:
+            self._traces.pop(run_id, None)
+
+        trace_event(
+            run_id,
+            "run_completed",
+            intent=result.get("intent"),
+            steps=result["steps"],
+        )
+
+        return {
+            "report": result["messages"][-1].content,
+            "intent": result.get("intent"),
+            "steps": result["steps"],
+            "run_id": run_id,
+            "trace": trace.spans,
+        }
+
+    def _invoke(self, task: str, run_id: str) -> dict:
+        return self.graph.invoke(
             {
                 "messages": [
                     ("human", task)
@@ -284,17 +335,3 @@ class AgentHarness:
                 )
             },
         )
-
-        trace_event(
-            run_id,
-            "run_completed",
-            intent=result.get("intent"),
-            steps=result["steps"],
-        )
-
-        return {
-            "report": result["messages"][-1].content,
-            "intent": result.get("intent"),
-            "steps": result["steps"],
-            "run_id": run_id,
-        }

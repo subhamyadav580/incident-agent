@@ -53,21 +53,21 @@ export function HealthIndicator({ connector, compact }: { connector: Connector; 
   );
 }
 
-export function HealthDot({ connector }: { connector: Connector }) {
-  const { state, message } = useHealthState(connector);
-  const cls = { ok: "bg-ok shadow-[0_0_0_3px_var(--ok-soft)]", err: "bg-err shadow-[0_0_0_3px_var(--err-soft)]", pending: "bg-warn animate-pulse", off: "bg-line-strong" }[state];
-  return <span title={message} aria-label={message} className={cn("size-2 shrink-0 rounded-full", cls)} />;
-}
-
 const LOGOS: Record<string, { text: string; cls: string }> = {
   postgres: { text: "PG", cls: "bg-[#336791]/20 text-[#5f9ad3]" },
   elasticsearch: { text: "ES", cls: "bg-[#fec514]/15 text-[#d9a600] dark:text-[#f0b90b]" },
+  git: { text: "GIT", cls: "bg-[#f05133]/15 text-[#e0472a] dark:text-[#ff6a4d]" },
 };
+
+const LABELS: Record<string, string> = { postgres: "PostgreSQL", elasticsearch: "Elasticsearch", git: "Git repository" };
+
+/** Human label of a connector type, e.g. "PostgreSQL". */
+export const typeLabel = (type: string) => LABELS[type] ?? type;
 
 export function TypeLogo({ type, size = 34 }: { type: string; size?: number }) {
   const logo = LOGOS[type] ?? { text: type.slice(0, 2).toUpperCase(), cls: "bg-surface-2 text-fg-2" };
   return (
-    <span className={cn("grid shrink-0 place-items-center rounded-lg text-[11px] font-bold", logo.cls)} style={{ width: size, height: size }}>
+    <span className={cn("grid shrink-0 place-items-center rounded-lg text-[10.5px] font-bold tracking-tight", logo.cls)} style={{ width: size, height: size }}>
       {logo.text}
     </span>
   );

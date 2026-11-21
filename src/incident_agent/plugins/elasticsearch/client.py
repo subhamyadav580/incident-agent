@@ -6,7 +6,7 @@ from elasticsearch import Elasticsearch
 # Connection settings (hosts, auth, TLS) are stored per connector in the app database.
 def create_client(
     request_timeout: int = 30,
-    max_retries: int = 3,
+    max_retries: int = 1,
     connection: Optional[dict] = None,
 ) -> Elasticsearch:
     connection = connection or {}
@@ -30,6 +30,7 @@ def create_client(
         hosts,
         request_timeout=request_timeout,
         max_retries=max_retries,
-        retry_on_timeout=True,
+        # A timeout usually means the cluster is unreachable; retrying only multiplies the wait.
+        retry_on_timeout=False,
         **kwargs,
     )

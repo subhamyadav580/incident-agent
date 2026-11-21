@@ -24,7 +24,8 @@ class Plugin:
     prefetch:         optional function run once before the first model call. It
                       gets the user's message and returns text evidence for the model.
                       It may also set a JSON-serializable `last_evidence` attribute
-                      that UIs can show next to the report.
+                      that UIs can show next to the report, and a one-line
+                      `last_summary` (e.g. "3 services matched") for run traces.
     prefetch_intents: the message intents the prefetch runs for.
     close:            optional cleanup (connection pools, clients) run after the run.
     """

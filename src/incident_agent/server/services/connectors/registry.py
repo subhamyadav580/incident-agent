@@ -5,11 +5,12 @@ Adding a type: write services/connectors/<type>.py and register it here.
 from .base import ConnectorType
 from .elasticsearch import ElasticsearchConnector
 from .errors import ConnectorInvalid
+from .git import GitConnector
 from .postgres import PostgresConnector
 
 CONNECTOR_TYPES: dict[str, ConnectorType] = {
     connector.type: connector
-    for connector in (PostgresConnector(), ElasticsearchConnector())
+    for connector in (PostgresConnector(), ElasticsearchConnector(), GitConnector())
 }
 
 

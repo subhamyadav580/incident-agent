@@ -9,6 +9,8 @@ class Settings:
     database_url: str
     # Fernet key encrypting stored credentials. Generate with `incident-agent-server --generate-key`.
     secret_key: str
+    # Local working data, e.g. clones of remote Git repositories.
+    data_dir: str
     host: str
     port: int
 
@@ -18,6 +20,7 @@ def get_settings() -> Settings:
     return Settings(
         database_url=os.environ.get("APP_DATABASE_URL", "postgresql://localhost:5432/incident_agent"),
         secret_key=os.environ.get("APP_SECRET_KEY", ""),
+        data_dir=os.environ.get("APP_DATA_DIR", "~/.incident-agent"),
         host=os.environ.get("APP_HOST", "127.0.0.1"),
         port=int(os.environ.get("APP_PORT", "8000")),
     )

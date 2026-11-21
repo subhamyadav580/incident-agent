@@ -24,4 +24,6 @@ class Investigation(Base):
     connectors: Mapped[list] = mapped_column(JSONB, default=list)
     # Condensed prefetch evidence for the UI: affected services, traces, records.
     evidence: Mapped[dict] = mapped_column(JSONB, default=dict)
+    # Timed steps of the run (classify, prefetch, model steps, tool calls).
+    trace: Mapped[list] = mapped_column(JSONB, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)

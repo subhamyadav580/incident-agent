@@ -50,7 +50,6 @@ function FieldControl({ field, value, onChange, secretStored }: { field: FieldSp
 
 export function ConnectorDialog({ type, connector, onClose }: { type: ConnectorType; connector?: Connector; onClose: () => void }) {
   const catalogField = type.fields.find((field) => field.kind === "catalog");
-  const hasAdvanced = type.fields.some((field) => field.group === "advanced");
   const [tab, setTab] = useState<Tab>("connection");
   const [name, setName] = useState(connector?.name ?? "");
   const [enabled, setEnabled] = useState(connector?.enabled ?? true);
@@ -61,17 +60,25 @@ export function ConnectorDialog({ type, connector, onClose }: { type: ConnectorT
   const remove = useDeleteConnector();
   const stored = new Set(connector?.secrets_set ?? []);
 
+  // Fields with show_if are hidden (and not sent) unless the other field matches.
+  const visible = (field: FieldSpec) =>
+    !field.show_if ||
+    Object.entries(field.show_if).every(([other, allowed]) => {
+      const spec = type.fields.find((f) => f.name === other);
+      return allowed.includes(String(values[other] || spec?.default || ""));
+    });
+
   const connection = useCallback(() => {
     const settings: Settings = {};
     const secrets: Record<string, string> = {};
     for (const field of type.fields) {
-      if (field.kind === "catalog") continue;
+      if (field.kind === "catalog" || !visible(field)) continue;
       const value = values[field.name];
       if (field.secret) secrets[field.name] = String(value);
       else if (value !== "") settings[field.name] = value;
     }
     return { settings, secrets };
-  }, [type, values]);
+  }, [type, values]); // `visible` reads the same values
 
   const catalogRequest = useCallback((): CatalogRequest => ({ type: type.type, id: connector?.id, ...connection() }), [type, connector, connection]);
 
@@ -82,7 +89,7 @@ export function ConnectorDialog({ type, connector, onClose }: { type: ConnectorT
   };
 
   const fields = (group: FieldSpec["group"]) =>
-    type.fields.filter((field) => field.group === group && field.kind !== "catalog").map((field) => (
+    type.fields.filter((field) => field.group === group && field.kind !== "catalog" && visible(field)).map((field) => (
       <div key={field.name} className={field.kind === "textarea" || field.kind === "bool" ? "md:col-span-2" : undefined}>
         <FieldControl field={field} value={values[field.name]} secretStored={stored.has(field.name)}
           onChange={(value) => setValues((current) => ({ ...current, [field.name]: value }))} />
@@ -90,6 +97,7 @@ export function ConnectorDialog({ type, connector, onClose }: { type: ConnectorT
     ));
   const error = (save.error ?? remove.error ?? test.error) as Error | null;
 
+  const hasAdvanced = type.fields.some((field) => field.group === "advanced" && visible(field));
   const tabs = [
     { id: "connection" as const, label: "Connection" },
     ...(catalogField ? [{ id: "catalog" as const, label: type.catalog_label }] : []),
@@ -143,7 +151,7 @@ export function ConnectorDialog({ type, connector, onClose }: { type: ConnectorT
         )
       )}
 
-      {tab === "advanced" && <div className="grid gap-x-5 gap-y-4 md:grid-cols-2">{fields("advanced")}</div>}
+      {tab === "advanced" && hasAdvanced && <div className="grid gap-x-5 gap-y-4 md:grid-cols-2">{fields("advanced")}</div>}
 
       {test.data && <Alert tone={test.data.ok ? "ok" : "err"}>{test.data.message}{test.data.latency_ms != null && ` (${formatDuration(test.data.latency_ms)})`}</Alert>}
       {error && <Alert tone="err">{error.message}</Alert>}

@@ -12,6 +12,8 @@ export interface FieldSpec {
   help: string;
   secret: boolean;
   group: "main" | "advanced";
+  /** Shown only when another field has one of these values, e.g. {source: ["remote"]}. */
+  show_if: Record<string, string[]> | null;
 }
 
 export interface ConnectorType {
@@ -114,6 +116,15 @@ export interface RecordEvidence {
   error: string | null;
 }
 
+export interface CodeEvidence {
+  repo: string;
+  term: string | null;
+  file: string | null;
+  line: number | null;
+  snippet: string;
+  error: string | null;
+}
+
 export interface Evidence {
   searched_for?: {
     identifiers?: string[];
@@ -126,6 +137,30 @@ export interface Evidence {
   services?: ServiceEvidence[];
   traces?: TraceEvidence[];
   records?: RecordEvidence[];
+  code?: CodeEvidence[];
+}
+
+export interface TraceSpan {
+  kind: "intent" | "prefetch" | "model" | "tool" | "limit";
+  name: string;
+  start_ms: number;
+  duration_ms: number;
+  status: "ok" | "error";
+  detail: {
+    intent?: string;
+    reason?: string;
+    summary?: string;
+    chars?: number;
+    outcome?: string;
+    input_tokens?: number;
+    output_tokens?: number;
+    tool_calls?: { name: string; args: Record<string, unknown> }[];
+    args?: Record<string, unknown>;
+    result?: string;
+    result_chars?: number;
+    error?: string;
+    steps?: number;
+  };
 }
 
 export interface Investigation extends InvestigationSummary {
@@ -133,6 +168,7 @@ export interface Investigation extends InvestigationSummary {
   error: string;
   connectors: string[];
   evidence: Evidence;
+  trace: TraceSpan[];
 }
 
 export interface Overview {

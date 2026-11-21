@@ -77,7 +77,7 @@ Then, in the browser:
 | Page | What it shows |
 |---|---|
 | **Overview** | Investigations, failures and average time to answer over 24h, messages by intent, live connector health with latency, recent investigations |
-| **Investigate** | Searchable history; per investigation the summary, root cause, affected services (match counts, hourly trend, first/last seen, distinct log patterns), request traces, database records, a UTC-ordered timeline and evidence gaps |
+| **Investigate** | Searchable history; per investigation the summary, root cause, affected services (match counts, hourly trend, first/last seen, distinct log patterns), code references, request traces, database records, a UTC-ordered timeline, evidence gaps, and a **Workflow** view of how the run went: each step (classify, data gathering per source, model steps, tool calls) as a timed bar with its tokens, arguments, result preview and errors |
 | **Connectors** | Data sources with health, latency and an enable switch; add or edit them in a side panel |
 | **Settings** | Model, routing, step limit, API key, team instructions |
 
@@ -158,10 +158,21 @@ connector's *Advanced* tab, e.g. `\bORD-\d+\b`.
 |---|---|---|---|
 | Elasticsearch | `list_es_indices`, `get_index_mapping`, `search_on_index` | error occurrences + request traces | finds the index groups that mention the message |
 | PostgreSQL | `list_databases`, `list_tables`, `describe_table`, `fetch_one`, `fetch_all` | rows for ids matching table lookups | model explores with `list_tables` / `describe_table` |
+| Git repository | `search_code`, `read_file`, `list_files`, `recent_commits` | where the error text and exception names appear in the code, with surrounding lines | — (works on any repo) |
 
 Several PostgreSQL connectors can be enabled at once; the agent sees each as a
 named database. One Elasticsearch connector can be enabled at a time. Every SQL
 query runs with a statement timeout.
+
+**Git repositories** are read-only. A *remote* repo (HTTPS URL, optional
+read-only access token) is cloned into `APP_DATA_DIR/repos` with the last
+`history_days` of commits and fetched again every `refresh_minutes`; the token
+is sent per command and never written into the clone. A *local* repo is read
+in place from a path on the server machine. Log messages usually appear
+literally in source code, so for an error message the agent gets the exact
+file and line that logs or throws it, and can check `recent_commits` for a
+change that shipped just before the incident. Add one connector per repo;
+several can be enabled at once.
 
 ### Adding a connector type
 

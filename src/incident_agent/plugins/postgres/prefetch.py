@@ -81,6 +81,8 @@ class RowLookup:
         results = self.search(message)
         # Structured result of the last call, for UIs (the model gets the rendered text).
         self.last_evidence = results
+        rows = sum(len(result.get("rows", [])) for result in results)
+        self.last_summary = f"{rows} row{'s' if rows != 1 else ''} from {len(results)} lookup{'s' if len(results) != 1 else ''}"
         if not results:
             return "Pre-fetched database evidence: none (no id in the message matched a configured table lookup)."
 

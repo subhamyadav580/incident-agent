@@ -6,6 +6,7 @@ __all__ = ["BUILTIN_PLUGINS", "Plugin", "Prefetch", "load_plugin", "load_plugins
 
 BUILTIN_PLUGINS = {
     "elasticsearch": "incident_agent.plugins.elasticsearch",
+    "git": "incident_agent.plugins.git",
     "postgres": "incident_agent.plugins.postgres",
 }
 

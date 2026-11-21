@@ -1,8 +1,6 @@
-import { Activity, Database, LayoutDashboard, Monitor, Moon, Plus, Rows3, Search, Settings, Sun, StretchHorizontal } from "lucide-react";
-import { NavLink, Outlet, Link } from "react-router";
-import { useConnectors } from "@/api/hooks";
+import { Activity, Database, LayoutDashboard, Monitor, Moon, Rows3, Search, Settings, Sun, StretchHorizontal } from "lucide-react";
+import { NavLink, Outlet } from "react-router";
 import { useDensity, useTheme, type Theme } from "@/lib/preferences";
-import { HealthDot } from "../status";
 import { cn } from "../ui/cn";
 
 const NAV = [
@@ -11,30 +9,6 @@ const NAV = [
   { to: "/connectors", label: "Connectors", icon: Database },
   { to: "/settings", label: "Settings", icon: Settings },
 ];
-
-function DataSources() {
-  const { data: connectors = [] } = useConnectors();
-  return (
-    <div className="hidden min-h-0 flex-1 flex-col md:flex">
-      <div className="px-5 pt-5 pb-1.5 text-[11px] font-semibold tracking-wider text-muted uppercase">Data sources</div>
-      <div className="min-h-0 space-y-0.5 overflow-y-auto px-2.5">
-        {connectors.length ? (
-          connectors.map((connector) => (
-            <Link key={connector.id} to="/connectors" className="flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] text-fg-2 hover:bg-hover">
-              <HealthDot connector={connector} />
-              <span className="min-w-0 flex-1 truncate">{connector.name}</span>
-              <span className="text-[11px] text-muted">{connector.type === "postgres" ? "PG" : connector.type === "elasticsearch" ? "ES" : connector.type}</span>
-            </Link>
-          ))
-        ) : (
-          <Link to="/connectors" className="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] text-muted hover:bg-hover">
-            <Plus className="size-3.5" /> Add a data source
-          </Link>
-        )}
-      </div>
-    </div>
-  );
-}
 
 function Preferences() {
   const [theme, setTheme] = useTheme();
@@ -85,7 +59,7 @@ export function AppShell() {
             </NavLink>
           ))}
         </nav>
-        <DataSources />
+        <div className="hidden flex-1 md:block" />
         <Preferences />
       </aside>
       <main className="min-w-0">

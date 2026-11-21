@@ -4,7 +4,7 @@ import { Link, useNavigate } from "react-router";
 import { useConnectors, useConnectorsHealth, useOverview } from "@/api/hooks";
 import type { Connector } from "@/api/types";
 import { PageBody, PageHeader } from "@/components/layout/PageHeader";
-import { HealthIndicator, IntentBadge, RunStatusBadge, TypeLogo } from "@/components/status";
+import { HealthIndicator, IntentBadge, RunStatusBadge, TypeLogo, typeLabel } from "@/components/status";
 import { ButtonLink } from "@/components/ui/Button";
 import { HourlyBars } from "@/components/ui/Charts";
 import { Alert, EmptyState, Spinner } from "@/components/ui/Feedback";
@@ -53,7 +53,7 @@ function ConnectorHealthPanel({ connectors }: { connectors: Connector[] }) {
               <TypeLogo type={connector.type} size={28} />
               <div className="min-w-0 flex-1">
                 <div className="truncate font-medium text-fg">{connector.name}</div>
-                <div className="text-[12px] text-muted">{connector.type === "postgres" ? "PostgreSQL" : connector.type === "elasticsearch" ? "Elasticsearch" : connector.type}</div>
+                <div className="text-[12px] text-muted">{typeLabel(connector.type)}</div>
               </div>
               <HealthIndicator connector={connector} />
             </li>

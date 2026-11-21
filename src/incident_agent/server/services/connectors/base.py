@@ -49,6 +49,8 @@ def apply_defaults(fields: list[FieldSpec], settings: dict) -> dict:
     for field in fields:
         if field.secret:
             continue
+        if field.show_if and not all(settings.get(key, _default(fields, key)) in values for key, values in field.show_if.items()):
+            continue  # hidden by another field's value: ignore it
         value = settings.get(field.name)
         if value in (None, "") and field.default is not None:
             value = field.default
@@ -81,3 +83,7 @@ def parse_yaml_mapping(text: str, label: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ConnectorInvalid(f"{label} must be a YAML mapping")
     return value
+
+
+def _default(fields: list[FieldSpec], name: str):
+    return next((field.default for field in fields if field.name == name), None)

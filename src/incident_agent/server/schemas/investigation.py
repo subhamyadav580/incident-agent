@@ -26,6 +26,10 @@ class InvestigationOut(InvestigationSummary):
     evidence: dict[str, Any] = Field(
         description="services: per-service error counts and histograms; traces; records: database rows"
     )
+    trace: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Timed steps: {kind: intent|prefetch|model|tool|limit, name, start_ms, duration_ms, status, detail}",
+    )
 
 
 class HourBucket(BaseModel):

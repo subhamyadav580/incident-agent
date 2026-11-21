@@ -15,7 +15,7 @@ def _pattern_text(example: dict) -> str:
 
 
 def summarize_evidence(evidence: dict[str, Any]) -> dict[str, Any]:
-    summary: dict[str, Any] = {"searched_for": {}, "services": [], "traces": [], "records": []}
+    summary: dict[str, Any] = {"searched_for": {}, "services": [], "traces": [], "records": [], "code": []}
 
     logs = evidence.get("elasticsearch") or {}
     summary["searched_for"] = logs.get("searched_for", {})
@@ -57,5 +57,15 @@ def summarize_evidence(evidence: dict[str, Any]) -> dict[str, Any]:
             "rows": record.get("rows", [])[:MAX_ROWS],
             "error": record.get("error"),
         })
+    for match in evidence.get("git") or []:
+        summary["code"].append({
+            "repo": match["repo"],
+            "term": match.get("term"),
+            "file": match.get("file"),
+            "line": match.get("line"),
+            "snippet": match.get("snippet", ""),
+            "error": match.get("error"),
+        })
+
     # Rows carry datetimes/decimals; store them as strings in the JSONB column.
     return json.loads(json.dumps(summary, default=str))
