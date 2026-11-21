@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Incident Agent: from an error message to its root cause</title>
+<meta name="description" content="Open-source AI agent that investigates production incidents: paste an error, a failing id or a question; it searches your logs, databases and code and explains the root cause with evidence.">
+<meta property="og:title" content="Incident Agent">
+<meta property="og:description" content="From an error message to its root cause, with the evidence. Open source; connects to Elasticsearch, PostgreSQL and Git.">
+<meta property="og:image" content="assets/screenshots/investigation.png">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect width='24' height='24' rx='6' fill='%235b93ff'/><path d='M4 12h3l2.5-6 5 12 2.5-6h3' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #07090d; --surface: #10141b; --surface-2: #161b24; --line: #222a37; --line-strong: #2e3848;
+    --fg: #e9ecf2; --fg-2: #b3bccb; --muted: #8591a5;
+    --accent: #5b93ff; --violet: #a985f5; --ok: #34c77b; --warn: #f2a53d; --err: #f45b60;
+    --radius: 14px; --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } * { animation: none !important; transition: none !important; } }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.6 Inter, -apple-system, "Segoe UI", sans-serif; -webkit-font-smoothing: antialiased; }
+  a { color: inherit; text-decoration: none; }
+  img { max-width: 100%; display: block; }
+  code { font-family: var(--mono); }
+  .wrap { width: min(1180px, 100% - 32px); margin: 0 auto; }
+  .muted { color: var(--muted); }
+
+  /* nav */
+  .nav { position: sticky; top: 0; z-index: 10; backdrop-filter: blur(12px); background: color-mix(in srgb, var(--bg) 78%, transparent); border-bottom: 1px solid var(--line); }
+  .nav .wrap { display: flex; align-items: center; gap: 24px; height: 60px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; letter-spacing: -.01em; }
+  .mark { width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; background: linear-gradient(135deg, var(--accent), var(--violet)); }
+  .nav-links { display: flex; gap: 22px; margin-left: 12px; font-size: 14px; color: var(--fg-2); }
+  .nav-links a:hover { color: var(--fg); }
+  .spacer { flex: 1; }
+  .btn { display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 16px; border-radius: 10px; font-weight: 600; font-size: 14.5px; border: 1px solid var(--line-strong); background: var(--surface-2); color: var(--fg); transition: transform .15s, background .15s, border-color .15s; white-space: nowrap; }
+  .btn:hover { transform: translateY(-1px); border-color: var(--muted); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.primary:hover { filter: brightness(1.08); }
+  .btn svg { width: 16px; height: 16px; }
+
+  /* hero */
+  .hero { position: relative; padding: 88px 0 40px; overflow: hidden; text-align: center; }
+  .glow { position: absolute; border-radius: 50%; filter: blur(90px); opacity: .35; pointer-events: none; }
+  .g1 { width: 520px; height: 520px; background: var(--accent); top: -260px; left: 50%; transform: translateX(-60%); }
+  .g2 { width: 420px; height: 420px; background: var(--violet); top: 120px; right: -160px; opacity: .2; }
+  .pill { display: inline-flex; align-items: center; gap: 8px; padding: 5px 12px; border-radius: 999px; font-size: 13px; color: var(--accent); background: rgb(91 147 255 / .12); border: 1px solid rgb(91 147 255 / .25); }
+  h1 { font-size: clamp(36px, 6vw, 64px); line-height: 1.05; letter-spacing: -.035em; margin: 20px auto 18px; max-width: 900px; font-weight: 800; }
+  h1 .grad { background: linear-gradient(90deg, var(--accent), var(--violet)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .lead { font-size: clamp(16px, 2vw, 19px); color: var(--fg-2); max-width: 720px; margin: 0 auto; }
+  .cta { display: flex; gap: 12px; justify-content: center; margin-top: 30px; flex-wrap: wrap; }
+  .install { margin: 22px auto 0; display: inline-flex; align-items: center; gap: 10px; font: 13.5px var(--mono); color: var(--fg-2); padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+  .install b { color: var(--ok); font-weight: 500; }
+
+  .frame { margin: 56px auto 0; max-width: 1120px; border-radius: 16px; border: 1px solid var(--line-strong); background: var(--surface); padding: 10px; box-shadow: 0 30px 80px rgb(0 0 0 / .55), 0 0 0 1px rgb(255 255 255 / .02) inset; position: relative; }
+  .frame::before { content: ""; position: absolute; inset: -1px; border-radius: 16px; padding: 1px; background: linear-gradient(140deg, rgb(91 147 255 / .55), transparent 35%, transparent 65%, rgb(169 133 245 / .45)); -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; pointer-events: none; }
+  .dots { display: flex; gap: 6px; padding: 4px 6px 10px; }
+  .dots i { width: 10px; height: 10px; border-radius: 50%; background: var(--line-strong); }
+  .frame img { border-radius: 8px; width: 100%; }
+
+  /* sections */
+  section { padding: 88px 0; }
+  .eyebrow { font-size: 13px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
+  h2 { font-size: clamp(28px, 4vw, 42px); letter-spacing: -.025em; line-height: 1.15; margin: 10px 0 12px; }
+  .section-lead { color: var(--fg-2); max-width: 680px; margin: 0 0 40px; font-size: 17px; }
+  .center { text-align: center; } .center .section-lead { margin-left: auto; margin-right: auto; }
+
+  /* flow */
+  .flow { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px; position: relative; }
+  .step { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; position: relative; }
+  .step .n { font: 12px var(--mono); color: var(--muted); }
+  .step h3 { margin: 10px 0 6px; font-size: 16px; }
+  .step p { margin: 0; color: var(--fg-2); font-size: 14px; }
+  .step .icon { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; }
+  .step .icon svg { width: 18px; height: 18px; }
+  .step:not(:last-child)::after { content: "→"; position: absolute; right: -14px; top: 30px; color: var(--muted); font-size: 16px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .chip { font-size: 12px; padding: 2px 8px; border-radius: 6px; background: var(--surface-2); border: 1px solid var(--line); color: var(--fg-2); }
+  .branch { margin-top: 14px; display: flex; gap: 14px; flex-wrap: wrap; color: var(--muted); font-size: 13.5px; }
+  .branch span { border: 1px dashed var(--line-strong); border-radius: 10px; padding: 6px 12px; }
+
+  /* features */
+  .features { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 16px; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 24px; overflow: hidden; display: flex; flex-direction: column; }
+  .card h3 { margin: 0 0 6px; font-size: 19px; letter-spacing: -.01em; }
+  .card p { margin: 0; color: var(--fg-2); font-size: 15px; }
+  .card .shot { margin-top: 20px; border-radius: 10px; border: 1px solid var(--line); overflow: hidden; }
+  .card .shot img { width: 100%; }
+  .span-4 { grid-column: span 4; } .span-3 { grid-column: span 3; } .span-2 { grid-column: span 2; } .span-6 { grid-column: span 6; }
+  .tag { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; margin-bottom: 10px; }
+  ul.ticks { list-style: none; padding: 0; margin: 14px 0 0; display: grid; gap: 8px; }
+  ul.ticks li { display: flex; gap: 10px; color: var(--fg-2); font-size: 14.5px; }
+  ul.ticks li::before { content: "✓"; color: var(--ok); font-weight: 700; }
+
+  /* connectors */
+  .connectors { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+  .conn { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 22px; }
+  .logo { width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; font: 700 13px Inter; margin-bottom: 14px; }
+  .conn h3 { margin: 0 0 6px; font-size: 17px; }
+  .conn p { margin: 0; color: var(--fg-2); font-size: 14px; }
+  .conn code { font-size: 12.5px; color: var(--fg-2); }
+
+  /* gallery */
+  .gallery { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+  .gallery a { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--surface); transition: transform .2s, border-color .2s; }
+  .gallery a:hover { transform: translateY(-3px); border-color: var(--line-strong); }
+  .gallery img { width: 100%; aspect-ratio: 16 / 10; object-fit: cover; object-position: top left; }
+  .gallery figcaption { padding: 10px 14px; font-size: 13.5px; color: var(--fg-2); border-top: 1px solid var(--line); }
+
+  /* quickstart */
+  .qs { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 24px; align-items: start; }
+  .code { position: relative; background: #0b0e14; border: 1px solid var(--line); border-radius: var(--radius); padding: 20px 22px; font: 13.5px/1.75 var(--mono); color: var(--fg-2); overflow-x: auto; white-space: pre; }
+  .code .c { color: var(--muted); }
+  .code .p { color: var(--ok); user-select: none; }
+  .copy { position: absolute; top: 12px; right: 12px; font: 600 12px Inter; padding: 5px 10px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--surface-2); color: var(--fg-2); cursor: pointer; }
+  .copy:hover { color: var(--fg); }
+  ol.steps { list-style: none; counter-reset: s; padding: 0; margin: 0; display: grid; gap: 14px; }
+  ol.steps li { counter-increment: s; display: grid; grid-template-columns: 34px 1fr; gap: 14px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; }
+  ol.steps li::before { content: counter(s); width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; font-weight: 700; color: var(--accent); background: rgb(91 147 255 / .12); }
+  ol.steps b { display: block; margin-bottom: 2px; }
+  ol.steps span { color: var(--fg-2); font-size: 14.5px; }
+  kbd { font: 12px var(--mono); padding: 1px 6px; border-radius: 5px; border: 1px solid var(--line-strong); background: var(--surface-2); }
+
+  footer { border-top: 1px solid var(--line); padding: 36px 0; color: var(--muted); font-size: 14px; }
+  footer .wrap { display: flex; gap: 20px; align-items: center; flex-wrap: wrap; }
+
+  @media (max-width: 960px) {
+    .flow { grid-template-columns: 1fr; } .step:not(:last-child)::after { content: "↓"; right: auto; left: 24px; top: auto; bottom: -22px; }
+    .features { grid-template-columns: 1fr; } .span-4, .span-3, .span-2, .span-6 { grid-column: auto; }
+    .connectors { grid-template-columns: 1fr 1fr; } .gallery { grid-template-columns: 1fr 1fr; } .qs { grid-template-columns: 1fr; }
+    .nav-links { display: none; }
+  }
+  @media (max-width: 560px) { .connectors, .gallery { grid-template-columns: 1fr; } section { padding: 64px 0; } .hero { padding-top: 56px; } }
+</style>
+</head>
+<body>
+<nav class="nav">
+  <div class="wrap">
+    <a class="brand" href="#"><span class="mark"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg></span>Incident Agent</a>
+    <div class="nav-links"><a href="#how">How it works</a><a href="#features">Features</a><a href="#connectors">Connectors</a><a href="#screenshots">Screenshots</a><a href="#quickstart">Quickstart</a></div>
+    <span class="spacer"></span>
+    <a class="btn" href="https://github.com/subhamyadav580/incident-agent"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 .5a12 12 0 0 0-3.8 23.4c.6.1.8-.3.8-.6v-2c-3.3.7-4-1.6-4-1.6-.6-1.4-1.4-1.8-1.4-1.8-1.1-.8.1-.7.1-.7 1.2.1 1.9 1.3 1.9 1.3 1.1 1.9 2.9 1.3 3.6 1 .1-.8.4-1.3.8-1.6-2.7-.3-5.5-1.3-5.5-5.9 0-1.3.5-2.4 1.2-3.2-.1-.3-.5-1.5.1-3.2 0 0 1-.3 3.3 1.2a11.5 11.5 0 0 1 6 0C17.3 4.7 18.3 5 18.3 5c.7 1.7.2 2.9.1 3.2.8.8 1.2 1.9 1.2 3.2 0 4.6-2.8 5.6-5.5 5.9.4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.6A12 12 0 0 0 12 .5z"/></svg>GitHub</a>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="glow g1"></div><div class="glow g2"></div>
+  <div class="wrap" style="position:relative">
+    <span class="pill">✦ Open-source AI incident investigation</span>
+    <h1>From an error message to its <span class="grad">root cause</span>, with the evidence.</h1>
+    <p class="lead">Paste an error, a failing id or a question. Incident Agent searches your logs, databases and code, follows the affected request across services and writes a report — summary, root cause marked fact or hypothesis, a UTC timeline, and what it couldn't verify.</p>
+    <div class="cta">
+      <a class="btn primary" href="#quickstart">Get started →</a>
+      <a class="btn" href="https://github.com/subhamyadav580/incident-agent">View on GitHub</a>
+    </div>
+    <div class="install"><b>$</b> uv run incident-agent-server <span class="muted">→ http://127.0.0.1:8000</span></div>
+    <div class="frame"><div class="dots"><i></i><i></i><i></i></div><img src="assets/screenshots/investigation.png" alt="An investigation: summary, root cause, affected services with trends, code references and database records" loading="eager"></div>
+  </div>
+</header>
+
+<section id="how">
+  <div class="wrap">
+    <div class="eyebrow">How it works</div>
+    <h2>Five steps, mostly before the model even starts.</h2>
+    <p class="section-lead">Plain code gathers the evidence first — fast, repeatable, no model calls. The model then reasons over it and uses tools only to fill gaps.</p>
+    <div class="flow">
+      <div class="step"><div class="icon" style="background:#1c2330;color:#b3bccb"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div><div class="n">01</div><h3>Your message</h3><p>An error, a stack-trace line, a failing id or a question.</p></div>
+      <div class="step"><div class="icon" style="background:rgb(169 133 245/.14);color:var(--violet)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.9 5.8L20 10l-6.1 1.2L12 17l-1.9-5.8L4 10l6.1-1.2z"/></svg></div><div class="n">02</div><h3>Classify</h3><p>Investigation, data question or chat — so a greeting never triggers a log search.</p></div>
+      <div class="step"><div class="icon" style="background:rgb(52 199 123/.14);color:var(--ok)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/></svg></div><div class="n">03</div><h3>Gather evidence</h3><p>Error occurrences per service, request traces, database rows, the code line.</p><div class="chips"><span class="chip">Logs</span><span class="chip">Databases</span><span class="chip">Code</span></div></div>
+      <div class="step"><div class="icon" style="background:rgb(91 147 255/.14);color:var(--accent)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="8" width="16" height="12" rx="2"/><path d="M12 8V4M8 14h.01M16 14h.01"/></svg></div><div class="n">04</div><h3>Agent loop</h3><p>Reads the evidence, calls tools to dig deeper, until confident or out of steps.</p><div class="chips"><span class="chip">search</span><span class="chip">SQL</span><span class="chip">read code</span></div></div>
+      <div class="step"><div class="icon" style="background:rgb(242 165 61/.14);color:var(--warn)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></svg></div><div class="n">05</div><h3>Report</h3><p>Summary, root cause (fact / hypothesis), UTC timeline, evidence gaps.</p></div>
+    </div>
+    <div class="branch"><span>💬 chat → answered directly, no data access</span><span>🔎 data question → database lookups, no log search</span><span>↻ every step is timed and shown in the Workflow view</span></div>
+  </div>
+</section>
+
+<section id="features" style="padding-top:24px">
+  <div class="wrap">
+    <div class="eyebrow">Features</div>
+    <h2>Built for the 2 a.m. page.</h2>
+    <p class="section-lead">Everything an on-call engineer would check by hand — done in seconds, shown as evidence you can verify.</p>
+    <div class="features">
+      <div class="card span-4"><span class="tag" style="color:var(--accent)">● Live</span><h3>Watch the agent work</h3><p>Steps stream in as they happen — classifying, searching logs, looking up records, reading code — each ticked off with what it found.</p><div class="shot"><img src="assets/screenshots/live-run.png" alt="Live investigation steps" loading="lazy"></div></div>
+      <div class="card span-2"><span class="tag" style="color:var(--ok)">✓ Evidence first</span><h3>Reports you can check</h3><p>Every claim is marked fact or hypothesis and backed by the data it came from.</p>
+        <ul class="ticks"><li>Affected services with match counts, hourly trend, first/last seen</li><li>Exact code line that logs or throws the error</li><li>Database rows for the ids in your message</li><li>Timeline normalized to UTC across services</li><li>What couldn't be verified, and the next check</li></ul></div>
+      <div class="card span-3"><span class="tag" style="color:var(--violet)">↻ Transparent</span><h3>See exactly how it ran</h3><p>A trace of every step: model calls and tokens, tool calls with arguments and results, timings, failures.</p><div class="shot"><img src="assets/screenshots/workflow.png" alt="Workflow trace waterfall" loading="lazy"></div></div>
+      <div class="card span-3"><span class="tag" style="color:var(--warn)">⌘ Configured in the UI</span><h3>Describe your data — or don't</h3><p>Tables and log groups load live from the source; add a note where it helps, mark lookup columns, leave the rest. No YAML.</p><div class="shot"><img src="assets/screenshots/connector-tables.png" alt="Tables editor with column descriptions and lookups" loading="lazy"></div></div>
+      <div class="card span-2"><span class="tag" style="color:var(--accent)">⌘K</span><h3>Keyboard-first</h3><p>A command palette for every page and action — or paste an error straight into it.</p><div class="shot"><img src="assets/screenshots/command-palette.png" alt="Command palette" loading="lazy"></div></div>
+      <div class="card span-4"><span class="tag" style="color:var(--ok)">🔒 Safe by design</span><h3>Read-only, local, yours</h3>
+        <ul class="ticks"><li>SQL limited to single SELECT/WITH statements, with row caps and statement timeouts</li><li>Git access is read-only; tokens are never written into clones</li><li>Credentials encrypted at rest in your own PostgreSQL; never returned by the API</li><li>Runs on your machine (127.0.0.1); bring any LangChain-supported model</li><li>Plugin system: add a new data source without touching the core</li></ul></div>
+    </div>
+  </div>
+</section>
+
+<section id="connectors" style="padding-top:24px">
+  <div class="wrap">
+    <div class="eyebrow">Connectors</div>
+    <h2>Connect what you already have.</h2>
+    <p class="section-lead">Add data sources in the UI; credentials are encrypted. Without descriptions the agent still finds its way.</p>
+    <div class="connectors">
+      <div class="conn"><div class="logo" style="background:rgb(254 197 20/.14);color:#f0b90b">ES</div><h3>Elasticsearch</h3><p>Error occurrences across services, request traces, index mappings. Finds the right index groups by itself.</p></div>
+      <div class="conn"><div class="logo" style="background:rgb(51 103 145/.25);color:#6aa3d8">PG</div><h3>PostgreSQL</h3><p>Read-only SQL over any number of databases; automatic row lookups for ids in your message.</p></div>
+      <div class="conn"><div class="logo" style="background:rgb(240 81 51/.15);color:#ff6a4d">GIT</div><h3>Git repositories</h3><p>Code search, file reading and recent commits — local checkouts or cloned remotes.</p></div>
+      <div class="conn"><div class="logo" style="background:var(--surface-2);color:var(--fg-2);border:1px dashed var(--line-strong)">+</div><h3>Your own</h3><p>A plugin is one module: <code>create_plugin(options) → tools + prefetch</code>.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="screenshots" style="padding-top:24px">
+  <div class="wrap">
+    <div class="eyebrow">Screenshots</div>
+    <h2>A tour of the app.</h2>
+    <p class="section-lead">Screenshots use example data from a demo shop.</p>
+    <div class="gallery">
+      <a href="assets/screenshots/home.png"><figure style="margin:0"><img src="assets/screenshots/home.png" alt="Home page with the how-it-works flow" loading="lazy"><figcaption>Home — how it works, getting started</figcaption></figure></a>
+      <a href="assets/screenshots/overview.png"><figure style="margin:0"><img src="assets/screenshots/overview.png" alt="Overview dashboard" loading="lazy"><figcaption>Overview — runs, failures, connector health</figcaption></figure></a>
+      <a href="assets/screenshots/investigation.png"><figure style="margin:0"><img src="assets/screenshots/investigation.png" alt="Investigation report" loading="lazy"><figcaption>Investigation — cause and evidence</figcaption></figure></a>
+      <a href="assets/screenshots/timeline.png"><figure style="margin:0"><img src="assets/screenshots/timeline.png" alt="Timeline in UTC" loading="lazy"><figcaption>Timeline — across services, in UTC</figcaption></figure></a>
+      <a href="assets/screenshots/connectors.png"><figure style="margin:0"><img src="assets/screenshots/connectors.png" alt="Connectors page" loading="lazy"><figcaption>Connectors — health and enable switch</figcaption></figure></a>
+      <a href="assets/screenshots/settings.png"><figure style="margin:0"><img src="assets/screenshots/settings.png" alt="Settings page" loading="lazy"><figcaption>Settings — model and team instructions</figcaption></figure></a>
+    </div>
+  </div>
+</section>
+
+<section id="quickstart" style="padding-top:24px">
+  <div class="wrap">
+    <div class="eyebrow">Quickstart</div>
+    <h2>Running in five minutes.</h2>
+    <p class="section-lead">Needs Python 3.11+, <a href="https://docs.astral.sh/uv/" style="color:var(--accent)">uv</a>, Node 20+ (to build the UI once) and a local PostgreSQL for the app's own data.</p>
+    <div class="qs">
+      <div class="code" id="qs-code"><button class="copy" type="button" data-copy="qs-code">Copy</button><span class="c"># 1. Get the code and dependencies</span>
+<span class="p">$ </span>git clone https://github.com/subhamyadav580/incident-agent.git
+<span class="p">$ </span>cd incident-agent &amp;&amp; uv sync
+<span class="p">$ </span>(cd frontend &amp;&amp; npm install &amp;&amp; npm run build)
+
+<span class="c"># 2. Configure the app database and encryption key</span>
+<span class="p">$ </span>cp .env.example .env
+<span class="p">$ </span>uv run incident-agent-server --generate-key
+<span class="c">#    paste the key into .env as APP_SECRET_KEY</span>
+
+<span class="c"># 3. Start the web UI</span>
+<span class="p">$ </span>uv run incident-agent-server
+<span class="c">#    → http://127.0.0.1:8000</span></div>
+      <ol class="steps">
+        <li><div><b>Add a data source</b><span>Connectors → Add: PostgreSQL, Elasticsearch or a Git repo. Press <em>Test connection</em>.</span></div></li>
+        <li><div><b>Describe your data (optional)</b><span>Open the connector's Tables / Index groups tab; add notes and lookup columns where they help.</span></div></li>
+        <li><div><b>Pick a model</b><span>Settings → provider and model, API key, and team instructions (your ids, status codes, service map).</span></div></li>
+        <li><div><b>Investigate</b><span>Paste an error or a failing id — or press <kbd>⌘</kbd> <kbd>K</kbd> and paste it there.</span></div></li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span class="brand"><span class="mark" style="width:22px;height:22px;border-radius:6px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg></span>Incident Agent</span>
+    <span>Open source · Python, LangGraph, FastAPI, React</span>
+    <span class="spacer"></span>
+    <a href="https://github.com/subhamyadav580/incident-agent">GitHub</a>
+    <a href="https://github.com/subhamyadav580/incident-agent#readme">Documentation</a>
+  </div>
+</footer>
+
+<script>
+  document.querySelectorAll("[data-copy]").forEach((button) => button.addEventListener("click", async () => {
+    const block = document.getElementById(button.dataset.copy);
+    const text = [...block.childNodes].filter((node) => node !== button).map((node) => node.textContent).join("")
+      .split("\n").filter((line) => line.startsWith("$ ")).map((line) => line.slice(2)).join("\n");
+    try { await navigator.clipboard.writeText(text); button.textContent = "Copied"; } catch { button.textContent = "Select & copy"; }
+    setTimeout(() => (button.textContent = "Copy"), 1500);
+  }));
+</script>
+</body>
+</html>

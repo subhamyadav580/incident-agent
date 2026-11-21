@@ -1,22 +1,39 @@
-# incident-agent
+<div align="center">
 
-An LLM agent that investigates production incidents. Paste an error message,
-an id, or a question, e.g. *"NumberFormatException: For input string ..."* or
-*"order 48213 failed at checkout"*. It finds that error across your services'
-logs, follows affected requests through every service, queries your databases
-if needed, and writes a report: summary, timeline, likely root cause, and what
-it couldn't verify.
+# Incident Agent
 
-```
-$ incident-agent "Payment for order ORD-48213 failed at 10:42"
+**From an error message to its root cause, with the evidence.**
 
-Investigation report:
+An open-source AI agent that investigates production incidents. Paste an error,
+a failing id or a question; it searches your logs, databases and code, follows
+the affected request across services and explains what happened, and what it
+couldn't verify.
 
-- Summary: The payment gateway timed out after 30s for ORD-48213 ...
-- Timeline: ...
-- Root cause: (fact) ... (hypothesis) ...
-- Evidence gaps: ...
-```
+[**Website**](https://subhamyadav580.github.io/incident-agent/) ·
+[Quickstart](#quickstart) ·
+[Using the app](#using-the-app) ·
+[Connectors](#connectors) ·
+[Writing a plugin](#writing-a-plugin)
+
+<img src="docs/assets/screenshots/investigation.png" alt="An investigation: summary, root cause, affected services with trends, code references and database records" width="100%">
+
+<sub>Screenshots use example data from a demo shop.</sub>
+
+</div>
+
+## Features
+
+| | |
+|---|---|
+| **Live investigation** | Steps stream in as they happen: classifying, searching logs, looking up records, reading code, each ticked off with what it found. |
+| **Evidence-first reports** | Summary, root cause with every point marked *Fact* or *Hypothesis*, a timeline across services in UTC, and evidence gaps with the next check worth doing. |
+| **Affected services** | Per service: true match count, hourly trend, first/last seen and the distinct log patterns, so 100k lines become a few readable rows. |
+| **Code references** | The exact file and line that logs or throws the error, from your Git repositories. |
+| **Database records** | Rows for the ids in your message, from the tables you describe. |
+| **Workflow trace** | Every step of a run, with model calls and tokens, tool calls and results, timings and failures. |
+| **Configured in the UI** | Connectors, credentials (encrypted), table and log descriptions, model and team instructions. No config files. |
+| **Keyboard-first** | <kbd>⌘</kbd> <kbd>K</kbd> command palette for every page and action; paste an error straight into it. |
+| **Read-only and local** | SQL limited to `SELECT`, statement timeouts and row caps; read-only Git; runs on 127.0.0.1 with any LangChain-supported model. |
 
 ## How it works
 
@@ -39,79 +56,133 @@ flowchart LR
     A --> P["📄 Report<br/><small>summary · root cause (fact / hypothesis)<br/>UTC timeline · evidence gaps</small>"]
 ```
 
-Every step is recorded (timing, tokens, tool calls) and shown in the
-investigation's **Workflow** tab; the same flow is drawn interactively on the
-app's Home page.
-
-0. **Intent.** One small model call decides whether the message is a chat
-   message, a question about data ("status of order X?") or something to
-   investigate (an error message, a failing id, "checkout is slow").
-
-1. **Prefetch (deterministic).** Before the model runs, each connector can gather
-   evidence. Elasticsearch, in two `msearch` calls over every index group you
-   have described (or, if none is, the groups that mention the message):
-   - **Error occurrences:** takes the error's signature from the message
-     (exception names, fixed phrases and URL paths; ids, numbers and quoted
-     values are dropped) and returns, per service, the true count, first/last
-     seen, an hourly histogram and the distinct message patterns with counts.
-   - **Request traces:** takes the ids in the message, or a few from the
-     matching log lines, and returns each service's log patterns for that
-     request in time order.
-
-   Repeated lines are collapsed into patterns, so 100k matching lines still
-   produce a few KB of evidence. PostgreSQL looks up the rows of ids in the
-   message for tables with a configured lookup. No model calls are spent on it.
-2. **Agent loop.** The model reads the evidence and calls tools only to fill
-   gaps: a wider time range, a related id it found in the logs, or database
-   state. Built on [LangGraph](https://github.com/langchain-ai/langgraph).
-3. **Limits.** The loop stops after the configured number of model steps and says the
-   evidence may be incomplete.
+1. **Classify.** One small model call decides whether the message is a chat
+   message (answered directly), a data question (database lookups, no log
+   search) or an incident to investigate.
+2. **Gather evidence (plain code, no model calls).** Logs: the error's exception
+   names and fixed phrases are searched in every service you described (or all
+   of them, if you described none), returning counts, first/last seen, an hourly
+   histogram and distinct patterns per service; affected request ids are traced
+   across services. Databases: rows for ids in the message are looked up. Code:
+   the file and line that logs or throws the error.
+3. **Agent loop.** The model reads the evidence and calls tools only to fill
+   gaps (a wider time range, a related id, database state, the code around a
+   match), until it can explain the failure or the step budget runs out. Built on
+   [LangGraph](https://github.com/langchain-ai/langgraph).
+4. **Report.** Written with fixed sections so the UI can show each as a card.
 
 ## Quickstart
 
 Requires Python 3.11+, [uv](https://docs.astral.sh/uv/), Node 20+ (to build
-the web UI) and a local PostgreSQL for the app's own data (connectors,
-credentials, settings).
+the web UI once) and a local PostgreSQL for the app's own data (connectors,
+credentials, settings, history).
 
 ```bash
-git clone <this repo> && cd incident-agent
+git clone https://github.com/subhamyadav580/incident-agent.git
+cd incident-agent
 uv sync
 (cd frontend && npm install && npm run build)    # builds the UI into the server package
 
 cp .env.example .env
 uv run incident-agent-server --generate-key      # paste into .env as APP_SECRET_KEY
-uv run incident-agent-server                      # http://127.0.0.1:8000
+uv run incident-agent-server                      # → http://127.0.0.1:8000
 ```
 
-Then, in the browser:
+The app database (`APP_DATABASE_URL`, default
+`postgresql://localhost:5432/incident_agent`) is created on first start.
 
-1. **Connectors:** add your PostgreSQL databases and your Elasticsearch cluster,
-   and press *Test connection*.
-2. **Settings:** pick the model provider and model, and optionally add an API
-   key and team instructions.
-3. **Investigate:** paste an error message or a failing id.
+## Using the app
 
-| Page | What it shows |
+### 1. Connect a data source
+
+**Connectors → Add connector** (or <kbd>⌘</kbd> <kbd>K</kbd> → "Add … connector").
+Pick PostgreSQL, Elasticsearch or a Git repository, fill in the connection,
+press **Test connection**, then **Save**. Passwords and tokens are encrypted and
+never shown again. Each connector has an enable switch and a live health check.
+
+<img src="docs/assets/screenshots/connectors.png" alt="Connectors page with health and enable switches" width="100%">
+
+### 2. Describe your data (optional)
+
+Open a connector's second tab. **PostgreSQL → Tables** and **Elasticsearch →
+Index groups** list what's actually in the source; expand a table to see its
+columns, types and indexes, or an index group to see its fields.
+
+- Add a description where it helps (what the table holds, what status codes mean).
+- **Look up by**: when a message contains an id matching the pattern (e.g.
+  `\bORD-\d+\b`), that row is fetched automatically. Prefer indexed columns.
+- For log groups, tick the fields to **Return**, the fields to **Search** for
+  ids and error text, and the **Timestamp** field.
+
+Anything left blank stays as it is; without descriptions the agent still finds
+its way.
+
+<img src="docs/assets/screenshots/connector-tables.png" alt="Tables editor with column descriptions, indexed badges and a lookup column" width="100%">
+
+### 3. Choose the model and add team instructions
+
+**Settings**: provider and model (any
+[LangChain provider](https://python.langchain.com/docs/how_to/chat_models_universal_init/);
+OpenAI works out of the box), an optional API key (otherwise the provider's
+environment variable is used), a cheaper routing model, the step budget, and
+**team instructions**: your id formats, status codes, service map and runbooks.
+
+<img src="docs/assets/screenshots/settings.png" alt="Settings page" width="100%">
+
+### 4. Investigate
+
+**Investigate** (or <kbd>⌘</kbd> <kbd>K</kbd>, then paste): enter an error message,
+a failing id or a question. The steps stream in while the agent works.
+
+<img src="docs/assets/screenshots/live-run.png" alt="Live investigation steps" width="100%">
+
+### 5. Read the report
+
+Each investigation has tabs:
+
+| Tab | What's in it |
 |---|---|
-| **Overview** | Investigations, failures and average time to answer over 24h, messages by intent, live connector health with latency, recent investigations |
-| **Investigate** | Searchable history; per investigation the summary, root cause, affected services (match counts, hourly trend, first/last seen, distinct log patterns), code references, request traces, database records, a UTC-ordered timeline, evidence gaps, and a **Workflow** view of how the run went: each step (classify, data gathering per source, model steps, tool calls) as a timed bar with its tokens, arguments, result preview and errors |
-| **Connectors** | Data sources with health, latency and an enable switch; add or edit them in a side panel |
-| **Settings** | Model, routing, step limit, API key, team instructions |
+| **Overview** | Summary, root cause (fact / hypothesis), top affected services, code references, database records, evidence gaps |
+| **Evidence** | All affected services (click one for its log patterns), code references, request traces, database records |
+| **Timeline** | Events across services, converted to UTC and ordered |
+| **Workflow** | How the run went (below) |
+| **Report** | The full Markdown report, also copyable |
 
-Press **⌘K / Ctrl+K** anywhere for the command palette: jump to a page, start
-an investigation (paste an error straight into it), add a connector, switch
-theme or density, or reopen a past investigation. While an investigation runs,
-its steps stream in live (classifying, searching logs, looking up records,
-reading code, writing the report), each ticked off with what it found.
+<img src="docs/assets/screenshots/timeline.png" alt="Timeline across services in UTC" width="100%">
 
-The CLI uses the same database, so it sees the same connectors and settings:
+### 6. See how it worked
+
+The **Workflow** tab shows the pipeline (message → classify → gather data →
+agent → report) and every step as a timed bar. Click a step for details: why an
+intent was chosen, what a source found, tokens used, tool arguments, a result
+preview and errors.
+
+<img src="docs/assets/screenshots/workflow.png" alt="Workflow trace with timed steps" width="100%">
+
+### Everywhere: ⌘K, Home and Overview
+
+<kbd>⌘</kbd> <kbd>K</kbd> / <kbd>Ctrl</kbd> <kbd>K</kbd> opens the command palette:
+jump to a page, start an investigation, add a connector, switch theme or
+density, or reopen a past investigation. **Home** explains the flow and shows a
+getting-started checklist; **Overview** is the dashboard (runs, failures, time
+to answer, connector health, recent investigations).
+
+| Command palette | Overview |
+|---|---|
+| <img src="docs/assets/screenshots/command-palette.png" alt="Command palette" width="100%"> | <img src="docs/assets/screenshots/overview.png" alt="Overview dashboard" width="100%"> |
+
+### CLI
+
+The CLI uses the same app database, so it sees the same connectors and settings:
 
 ```bash
 uv run incident-agent "request 0a5c19d9a57b86b6 returned 500"
 echo "checkout is failing for user 8812" | uv run incident-agent -
 ```
 
-### Frontend development
+## Development
+
+### Frontend
 
 The UI is React 19 + TypeScript, styled with Tailwind CSS v4 (design tokens
 as CSS variables in `frontend/src/index.css`, light and dark themes, compact
@@ -124,6 +195,15 @@ cd frontend && npm run dev            # UI on :5173 with hot reload, proxies /ap
 npm run typecheck                     # strict TypeScript
 npm run build                         # production build into src/incident_agent/server/static
 ```
+
+### Website (GitHub Pages)
+
+The project site is a static page in [`docs/`](docs/) (`docs/index.html` and
+the screenshots in `docs/assets/screenshots/`); no build step. To publish it:
+GitHub repository → **Settings → Pages → Build and deployment → Source:
+Deploy from a branch → `main` / `/docs` → Save**. It is served at
+`https://<user>.github.io/incident-agent/` a minute later and updates on every
+push to `main`.
 
 ## Where things are stored
 
